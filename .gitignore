@@ -1,0 +1,8 @@
+___pycache__/
+env/
+local_tests
+.pypirc
+dist/
+build/
+*.egg-info/
+Makefile

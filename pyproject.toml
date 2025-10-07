@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scorio"
+authors = [
+    { name = "Mohsen Hariri", email = "mohsen.hariri@case.edu" },
+    { name = "Amirhossein Samandar", email = "amirhossein.samandar@case.edu" },
+]
+license = "MIT"
+readme = { file = "README.md", content-type = "text/markdown" }
+description = "Bayesian evaluation and ranking toolkit"
+keywords = ["bayesian", "statistics", "ranking", "evaluation", "machine learning", "large language models"]
+classifiers = [
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+requires-python = ">=3.9,<3.14"
+dynamic = ["version"]
+dependencies = ["numpy"]
+
+[project.urls]
+Homepage = "https://mohsenhariri.github.io/bayes-kit/"
+Repository = "https://github.com/mohsenhariri/bayes-kit"
+Issues = "https://github.com/mohsenhariri/bayes-kit/issues"
+Documentation = "https://mohsenhariri.github.io/bayes-kit/"
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "black>=24.0", "isort>=5.0", "mypy>=1.0"]
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
+
+[tool.setuptools.packages.find]
+include = ["scorio*"]
+
+

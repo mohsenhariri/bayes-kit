@@ -1,0 +1,13 @@
+name = "Scorio"
+uuid = "8b85e2e0-9a7f-4d8f-8e1e-3c5c7d5e8e0a"
+authors = ["Mohsen Hariri <mohsen.hariri@gmail.com>"]
+version = "0.1.0"
+
+[compat]
+julia = "1.6"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
