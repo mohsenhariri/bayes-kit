@@ -23,6 +23,9 @@ This repository contains two packages:
 #### Installation
 
 ```bash
+# Install from PyPI
+pip install scorio
+
 # Install from repository
 pip install -e .
 
