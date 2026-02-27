@@ -1,6 +1,3 @@
-import math
-from typing import Literal, Optional, Sequence
-
 import numpy as np
 from scipy.special import ndtri
 
@@ -55,7 +52,7 @@ def normal_credible_interval(
     sigma: float,
     credibility: float = 0.95,
     two_sided: bool = True,
-    bounds: Optional[tuple[float, float]] = None,
+    bounds: tuple[float, float] | None = None,
 ) -> tuple[float, float]:
     """Gaussian-approximate Bayesian credible interval (CrI).
 

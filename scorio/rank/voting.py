@@ -827,9 +827,7 @@ def kemeny_young(
             return True
         # If the constrained solve did not terminate optimally, do not force
         # the opposite order to be impossible.
-        if not fixed_res.success:
-            return True
-        return False
+        return bool(not fixed_res.success)
 
     forced = np.zeros((L, L), dtype=bool)
     for i in range(L):

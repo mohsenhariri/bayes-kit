@@ -169,14 +169,18 @@ def rank_centrality(
         ranking = rank_scores(scores)[method]
         return (ranking, scores) if return_scores else ranking
 
-    if teleport == 0.0 and smoothing == 0.0 and tie_handling == "ignore":
+    if (
+        teleport == 0.0
+        and smoothing == 0.0
+        and tie_handling == "ignore"
+        and not _is_connected_undirected(adj)
+    ):
         # With decisive-only comparisons and no regularization, the graph may
         # be disconnected; Rank Centrality is not identifiable across components.
-        if not _is_connected_undirected(adj):
-            raise ValueError(
-                "Rank Centrality requires a connected comparison graph; "
-                "use teleport>0, smoothing>0, or tie_handling='half'."
-            )
+        raise ValueError(
+            "Rank Centrality requires a connected comparison graph; "
+            "use teleport>0, smoothing>0, or tie_handling='half'."
+        )
 
     # Transition matrix (row-stochastic), Negahban et al. (2017):
     #   P_{ij} = (1/d_max) * p̂_{j,i} for i!=j on edges, else 0

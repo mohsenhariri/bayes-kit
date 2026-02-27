@@ -284,7 +284,6 @@ def spectral(
             return (ranking, v_uniform) if return_scores else ranking
         v_new = v_new / s
         if np.linalg.norm(v_new - v, 1) < tol:
-
             ranking = rank_scores(v_new)[method]
             return (ranking, v_new) if return_scores else ranking
         v = v_new
@@ -514,7 +513,6 @@ def nash(
     np.fill_diagonal(A, 0.0)
 
     if np.allclose(A, 0.0, atol=1e-14):
-
         equilibrium = np.ones(L, dtype=float) / L
         if score_type == "equilibrium":
             scores = equilibrium

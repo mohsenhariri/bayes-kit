@@ -21,8 +21,6 @@ Available Functions
   credible interval around ``mu``.
 """
 
-from typing import Optional
-
 import numpy as np
 
 from .utils import (
@@ -34,8 +32,8 @@ from .utils import (
 
 def bayes(
     R: np.ndarray,
-    w: Optional[np.ndarray] = None,
-    R0: Optional[np.ndarray] = None,
+    w: np.ndarray | None = None,
+    R0: np.ndarray | None = None,
 ) -> tuple[float, float]:
     """
     Performance evaluation using the Bayes@N framework.
@@ -170,10 +168,10 @@ def bayes(
 
 def bayes_ci(
     R: np.ndarray,
-    w: Optional[np.ndarray] = None,
-    R0: Optional[np.ndarray] = None,
+    w: np.ndarray | None = None,
+    R0: np.ndarray | None = None,
     confidence: float = 0.95,
-    bounds: Optional[tuple[float, float]] = None,
+    bounds: tuple[float, float] | None = None,
 ) -> tuple[float, float, float, float]:
     """Convenience wrapper: Bayes@N mean and std plus a normal-approx credible interval (CrI)."""
     mu, sigma = bayes(R, w, R0)

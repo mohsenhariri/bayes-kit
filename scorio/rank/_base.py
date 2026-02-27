@@ -16,9 +16,13 @@ the sufficient pairwise count matrices used by many ranking estimators.
 """
 
 import numpy as np
+import numpy.typing as npt
 
 
-def validate_input(R: np.ndarray, binary_only: bool = True) -> np.ndarray:
+def validate_input(  # noqa: C901, PLR0912
+    R: npt.ArrayLike,  # noqa: N803
+    binary_only: bool = True,  # noqa: FBT001, FBT002
+) -> npt.NDArray[np.int_]:
     """
     Validate and convert input to proper 3D array.
 
@@ -39,11 +43,11 @@ def validate_input(R: np.ndarray, binary_only: bool = True) -> np.ndarray:
     Raises:
         ValueError: If input has invalid dimensions or non-binary values (when binary_only=True).
     """
-    R = np.asarray(R)
+    R = np.asarray(R)  # noqa: N806
 
     # Handle 2D input (L, M) by adding trial dimension
     if R.ndim == 2:
-        R = R[:, :, np.newaxis]  # Shape becomes (L, M, 1)
+        R = R[:, :, np.newaxis]  # Shape becomes (L, M, 1)  # noqa: N806
     elif R.ndim != 3:
         raise ValueError(
             f"Input R must be a 2D array of shape (L, M) or 3D array of shape (L, M, N), got shape {R.shape}"
@@ -70,9 +74,8 @@ def validate_input(R: np.ndarray, binary_only: bool = True) -> np.ndarray:
                     "Float inputs must be binary values (0.0 or 1.0). "
                     "Use integer dtype for multiclass outcomes."
                 )
-        elif binary_only:
-            if not np.all((R == 0) | (R == 1)):
-                raise ValueError("Input R must contain only binary values (0 or 1)")
+        elif binary_only and not np.all((R == 0) | (R == 1)):
+            raise ValueError("Input R must contain only binary values (0 or 1)")
 
         R = R.astype(int, copy=False)
 
@@ -116,7 +119,9 @@ def build_pairwise_wins(R: np.ndarray) -> np.ndarray:
     return wins
 
 
-def build_pairwise_counts(R: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def build_pairwise_counts(
+    R: npt.NDArray[np.int_],
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """
     Build pairwise win and tie count matrices from binary response tensor.
 

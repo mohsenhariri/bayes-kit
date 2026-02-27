@@ -6,7 +6,8 @@ means and posterior standard deviations.
 """
 
 import math
-from typing import Any, Literal, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any, Literal, Optional
 
 import numpy as np
 from scipy.stats import kendalltau, norm, rankdata, spearmanr, weightedtau
@@ -55,7 +56,7 @@ def ci_from_mu_sigma(
     mu: float,
     sigma: float,
     confidence: float = 0.95,
-    clip: Optional[tuple[float, float]] = None,
+    clip: tuple[float, float] | None = None,
 ) -> tuple[float, float]:
     """
     Build a normal-approximation credible interval from ``mu`` and ``sigma``.
@@ -89,8 +90,8 @@ def ci_from_mu_sigma(
 def should_stop(
     sigma: float,
     confidence: float = 0.95,
-    max_ci_width: Optional[float] = None,
-    max_half_width: Optional[float] = None,
+    max_ci_width: float | None = None,
+    max_half_width: float | None = None,
 ) -> bool:
     """
     Decide whether a scalar metric is precise enough to stop.

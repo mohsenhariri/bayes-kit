@@ -6,14 +6,15 @@ JULIA_PROJECT:=julia/Scorio.jl
 .PHONY: test-eval-py test-rank-py test-rank-py-slow test-eval-jl test-rank-jl test-rank-jl-slow
 
 format-check:
-	isort --check-only $(SRC)
-	black --check $(SRC)
+	ruff format --check $(SRC)
+	ruff check $(SRC)
 
 format:
-	isort $(SRC)
-	black $(SRC)
+	ruff format $(SRC)
+	ruff check --fix $(SRC)
 
 lint:
+	ruff check $(SRC)
 	mypy $(SRC)
 
 sync-version:

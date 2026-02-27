@@ -455,7 +455,7 @@ def _g_pass_at_k_tau_bayes(
         b_i = float(beta[i])
 
         m = 0.0
-        for c_j, j in zip(coeff, js):
+        for c_j, j in zip(coeff, js, strict=True):
             m += c_j * _beta_ratio(a_i, b_i, j, k - j)
 
         e2 = 0.0
@@ -501,7 +501,7 @@ def _mg_pass_at_k_bayes(
         b_i = float(beta[i])
 
         m = 0.0
-        for c_j, j in zip(coeff, js):
+        for c_j, j in zip(coeff, js, strict=True):
             m += c_j * _beta_ratio(a_i, b_i, j, k - j)
 
         e2 = 0.0

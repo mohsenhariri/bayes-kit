@@ -8,8 +8,6 @@ averages across questions and trials.
 
 """
 
-from typing import Optional
-
 import numpy as np
 
 from .bayes import bayes
@@ -23,7 +21,7 @@ from .utils import (
 
 def _avg(
     R: np.ndarray,
-    w: Optional[np.ndarray] = None,
+    w: np.ndarray | None = None,
 ) -> float:
     """
     Simple (optionally weighted) average of all entries in the result matrix.
@@ -86,7 +84,7 @@ def _avg(
 
 def avg(
     R: np.ndarray,
-    w: Optional[np.ndarray] = None,
+    w: np.ndarray | None = None,
 ) -> tuple[float, float]:
     """
     Avg\u0040N plus a Bayesian uncertainty estimate (uniform prior, no R0).
@@ -166,9 +164,9 @@ def avg(
 
 def avg_ci(
     R: np.ndarray,
-    w: Optional[np.ndarray] = None,
+    w: np.ndarray | None = None,
     confidence: float = 0.95,
-    bounds: Optional[tuple[float, float]] = None,
+    bounds: tuple[float, float] | None = None,
 ) -> tuple[float, float, float, float]:
     """
     Avg\u0040N with Bayesian :math:`\\sigma` and a normal-approximation

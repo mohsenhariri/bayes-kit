@@ -1643,6 +1643,18 @@ def _estimate_rasch_mml(
     beta = -np.log((question_difficulty + 0.01) / (1 - question_difficulty + 0.01))
     beta = beta - beta.mean()
 
+    def _make_item_nll(k_m, posterior):
+        def item_nll(b):
+            nll = 0.0
+            for q in range(n_quadrature):
+                prob = sigmoid(theta_q[q] - b)
+                prob = np.clip(prob, 1e-10, 1 - 1e-10)
+                log_p = k_m * np.log(prob) + (n_trials - k_m) * np.log(1 - prob)
+                nll -= np.sum(posterior[:, q] * log_p)
+            return nll
+
+        return item_nll
+
     # EM algorithm
     for _ in range(em_iter):
         # E-step: Compute posterior weights for each model at each quadrature point
@@ -1664,18 +1676,9 @@ def _estimate_rasch_mml(
         posterior = lik / lik.sum(axis=1, keepdims=True)  # (L, n_quadrature)
 
         # M-step: Update item difficulties
-        # Expected sufficient statistics
         for m in range(M):
-            k_m = k_correct[:, m]  # Correct counts for item m
-
-            def item_nll(b):
-                nll = 0.0
-                for q in range(n_quadrature):
-                    prob = sigmoid(theta_q[q] - b)
-                    prob = np.clip(prob, 1e-10, 1 - 1e-10)
-                    log_p = k_m * np.log(prob) + (n_trials - k_m) * np.log(1 - prob)
-                    nll -= np.sum(posterior[:, q] * log_p)
-                return nll
+            k_m = k_correct[:, m]
+            item_nll = _make_item_nll(k_m, posterior)
 
             result = minimize(
                 item_nll,

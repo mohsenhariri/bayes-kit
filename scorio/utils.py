@@ -1,5 +1,6 @@
 import math
-from typing import Literal, Optional, Sequence
+from collections.abc import Sequence
+from typing import Literal
 
 import numpy as np
 from scipy.stats import kendalltau, norm, rankdata, spearmanr, weightedtau
@@ -8,7 +9,7 @@ from scipy.stats import kendalltau, norm, rankdata, spearmanr, weightedtau
 def rank_scores(
     scores_in_id_order: Sequence[float] | np.ndarray,
     tol: float = 1e-12,
-    sigmas_in_id_order: Optional[Sequence[float] | np.ndarray] = None,
+    sigmas_in_id_order: Sequence[float] | np.ndarray | None = None,
     confidence: float = 0.95,
     ci_tie_method: Literal[
         "zscore_adjacent", "ci_overlap_adjacent"
@@ -116,11 +117,8 @@ def rank_scores(
                 if abs(ci_grouped[i] - ci_grouped[i - 1]) <= tol:
                     ci_grouped[i] = ci_grouped[i - 1]
                     continue
-                lo_prev, hi_prev = (
-                    mus_s[i - 1] - z * sig_s[i - 1],
-                    mus_s[i - 1] + z * sig_s[i - 1],
-                )
-                lo_cur, hi_cur = mus_s[i] - z * sig_s[i], mus_s[i] + z * sig_s[i]
+                lo_prev = mus_s[i - 1] - z * sig_s[i - 1]
+                hi_cur = mus_s[i] + z * sig_s[i]
                 if lo_prev <= hi_cur:
                     ci_grouped[i] = ci_grouped[i - 1]
         else:

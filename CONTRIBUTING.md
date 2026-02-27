@@ -49,17 +49,17 @@ pip install -e ".[dev]"
 - numpy, scipy
 
 **Development:**
-- pytest, black, isort, mypy, build, twine, sphinx
+- pytest, ruff, mypy, build, twine, sphinx
 
 ## Code Style
 
 - Follow PEP 8
-- Format with Black
-- Sort imports with isort
+- Format and lint with Ruff
+- Type check with mypy
 
 ```bash
-black scorio/
-isort scorio/
+ruff format scorio/
+ruff check --fix scorio/
 mypy scorio/
 ```
 
