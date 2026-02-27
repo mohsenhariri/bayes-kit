@@ -82,6 +82,10 @@ select = [
 ignore = [
     "E501", # line-too-long (handled by ruff format for code; docstrings with math are OK)
     "E741", # ambiguous-variable-name (math-conventional short names like l, O)
+    "N803", # argument-name-should-be-lowercase (e.g. R for matrix)
+    "N806", # variable-in-function-should-be-lowercase (e.g. R for matrix)
+    "FBT001", # boolean-typed-argument-in-function-definition
+    "FBT002", # boolean-default-value-in-function-definition
 ]
 
 [tool.ruff.lint.per-file-ignores]
