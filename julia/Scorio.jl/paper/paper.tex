@@ -11,6 +11,9 @@
 
 \usepackage{siunitx}
 \usepackage{microtype}
+\makeatletter
+\renewcommand{\fnum@table}{Table \thetable}
+\makeatother
 
 \newcommand{\term}[1]{\emph{#1}}
 \newcommand{\e}{\ensuremath{\mathrm{e}}}
@@ -55,7 +58,7 @@
 
 When a benchmark involves stochastic outputs---language models sampled multiple times per prompt \cite{snell2025testtime,hariri2026ranking}, randomized software tests, or repeated simulation runs---the natural data object is a three-dimensional tensor \(R \in \{0,\ldots,C\}^{L\times M\times N}\) recording \(L\) systems on \(M\) tasks over \(N\) trials. Different ranking methods consume different views of this tensor: averages, pairwise win counts, per-task orderings, or latent trait estimates. Moving between these views typically means moving between separate tools.
 
-\scorio{} keeps the tensor as the single input and handles the view conversions internally. A user can pass the same \texttt{R} to \texttt{avg}, \texttt{bradley\_terry}, \texttt{rasch}, \texttt{borda}, or \texttt{pagerank} and get back comparable rank vectors without touching the surrounding pipeline. The package therefore serves two roles: day-to-day leaderboard construction, and methodological studies of how rankings shift when the ranking rule changes. Julia's multiple dispatch and dense-array primitives make it practical to keep these heterogeneous methods behind one API \cite{bezanson2017julia}.
+\scorio{} keeps the tensor as the single input and handles the view conversions internally. For binary-response benchmarks, a user can pass the same \texttt{R} to \texttt{avg}, \texttt{bradley\_terry}, \texttt{rasch}, \texttt{borda}, or \texttt{pagerank} and get back comparable rank vectors without touching the surrounding pipeline; weighted score-based methods such as \texttt{bayes} also support graded outcomes. The package therefore serves two roles: day-to-day leaderboard construction and methodological studies of how rankings shift when the ranking rule changes. Julia's multiple dispatch and dense-array primitives make it practical to keep these heterogeneous methods behind one API \cite{bezanson2017julia}.
 
 \section{Statement of need}
 
@@ -75,9 +78,9 @@ Several Julia packages handle parts of this problem. StatsBase provides general-
 
 \subsection{Response tensors and a shared API}
 
-For evaluating a single system, \scorio{} uses outcome matrices \(E \in \{0,\ldots,C\}^{M\times N}\), where \(M\) is the number of tasks, \(N\) the number of trials, and \(C\) the maximum category label (\(C+1\) outcome categories in total). For ranking multiple systems, it uses response tensors \(R \in \{0,\ldots,C\}^{L\times M\times N}\), where \(L\) is the number of systems. Two-dimensional inputs are promoted automatically to a single-trial tensor, so one-shot benchmarks use the same code path.
+For evaluating a single system, \scorio{} uses outcome matrices \(E \in \{0,\ldots,C\}^{M\times N}\), where \(M\) is the number of tasks, \(N\) the number of trials, and \(C\) the maximum category label (\(C+1\) outcome categories in total). For ranking multiple systems, it uses response tensors \(R \in \{0,\ldots,C\}^{L\times M\times N}\), where \(L\) is the number of systems. Two-dimensional inputs are promoted automatically to a single-trial tensor, so one-shot benchmarks use the same code path. When outcomes are graded, score-based methods can consume them directly via rubric weights.
 
-Different method families consume different views of \(R\). Pointwise methods work with trial means \(\bar r_{\ell m} = \frac{1}{N}\sum_{n=1}^{N} R_{\ell mn}\) or rubric-weighted scores. Pairwise methods work with induced win/tie counts \(W_{\ell,\ell'} = \lvert\{(m,n) : R_{\ell mn} > R_{\ell' mn}\}\rvert\). Voting and listwise methods use the per-task ordering \((R_{1mn},\ldots,R_{Lmn})\). Graph methods build a weighted comparison graph. IRT methods estimate latent abilities and task difficulties from the same binary or graded outcomes. All these conversions happen inside the package; the user always passes the same tensor.
+Different method families consume different views of \(R\). Pointwise methods work with trial means \(\bar r_{\ell m} = \frac{1}{N}\sum_{n=1}^{N} R_{\ell mn}\) or rubric-weighted scores. Pairwise methods work with induced decisive-win counts \(W_{\ell,\ell'} = \lvert\{(m,n) : R_{\ell mn} > R_{\ell' mn}\}\rvert\), with ties tracked separately when needed. Voting and listwise methods use the per-task ordering induced by \((R_{1mn},\ldots,R_{Lmn})\). Graph methods build a weighted comparison graph. IRT methods estimate latent abilities and task difficulties from binary outcomes. All these conversions happen inside the package; the user passes tensors in the same \((L,M,N)\) format.
 
 \subsection{Score construction, tie handling, and priors}
 
@@ -143,7 +146,7 @@ This breadth is the main software contribution: users can compare ranking assump
 
 \section{Experimental evaluation}
 
-We test three questions: (i)~whether representative methods recover a known synthetic ranking, (ii)~how stable the rankings are when only a few trials are available, and (iii)~what the practical runtime costs look like. The results below come from the \texttt{pilot} profile. Figure~\ref{fig:additional-pilot} provides complementary views through mean absolute rank error and top-1 stability.
+We test three questions: (i)~whether representative methods recover a known synthetic ranking, (ii)~how stable the rankings are when only a few trials are available, and (iii)~what the practical runtime costs look like. The results below come from the \texttt{pilot} profile. Figure~\ref{fig:additional-pilot} provides complementary views via mean absolute rank error and top-1 stability.
 
 \subsection{Synthetic rank recovery}
 
@@ -237,9 +240,11 @@ The cost differences are large. \texttt{bayes}, Borda, PageRank, and \texttt{avg
 \label{fig:runtime}
 \end{figure*}
 
+\balance
 \section{Research impact statement}
 
 \scorio{} lowers the cost of studying how benchmark conclusions depend on the ranking rule. In stochastic software benchmarks, repeated simulation studies, educational assessment, and any setting with shared tasks and repeated observations, the ranking method is a modeling choice that can change the outcome. By providing a common interface for multiple ranking families, the package makes it straightforward to run sensitivity analyses and compare assumptions---turning what would otherwise be a custom integration effort into a single function call.
+
 
 \section{Conclusion}
 
