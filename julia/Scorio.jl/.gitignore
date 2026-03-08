@@ -6,3 +6,15 @@
 /docs/build/
 /docs/site/
 .DS_Store
+
+# JuliaConf Submission
+paper/paper.pdf
+paper/out/
+*.aux
+*.fdb_latexmk
+*.fls
+*.blg
+*.out
+*.bbl
+*.synctex.gz
+*.log

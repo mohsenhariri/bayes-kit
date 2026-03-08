@@ -1,0 +1,39 @@
+\documentclass[tikz,border=4pt]{standalone}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\begin{document}
+\begin{tikzpicture}
+\begin{axis}[
+width=13cm,
+height=8cm,
+title={Ranking Stability vs Trials},
+xlabel={Trials kept (n)},
+ylabel={Mean Kendall tau-b to reference},
+grid=both,
+legend pos=south east,
+legend cell align=left,
+xmode=log, log basis x=2,
+]
+\addplot+[mark=*, thick, color=black] coordinates {(1,0.9709090909) (2,0.9781818182) (4,0.977268557) (8,0.9927272727) (16,0.9854545455) (32,0.9890909091)};
+\addlegendentry{avg}
+\addplot+[mark=*, thick, color=blue!70!black] coordinates {(1,0.9709090909) (2,0.9781818182) (4,0.977268557) (8,0.9927272727) (16,0.9854545455) (32,0.9890909091)};
+\addlegendentry{bayes}
+\addplot+[mark=*, thick, color=teal!70!black] coordinates {(1,0.9709090909) (2,0.9781818182) (4,0.9745454545) (8,0.9890909091) (16,0.9781818182) (32,0.9818181818)};
+\addlegendentry{borda}
+\addplot+[mark=*, thick, color=red!70!black] coordinates {(1,0.9709090909) (2,0.9781818182) (4,0.9745454545) (8,0.9927272727) (16,0.9854545455) (32,0.9890909091)};
+\addlegendentry{bradley\_terry\_davidson}
+\addplot+[mark=*, thick, color=orange!90!black] coordinates {(1,0.5854545455) (2,0.6109090909) (4,0.5927272727) (8,0.6472727273) (16,0.6) (32,0.5890909091)};
+\addlegendentry{elo}
+\addplot+[mark=*, thick, color=purple!70!black] coordinates {(1,0.9709090909) (2,0.9818181818) (4,0.9781818182) (8,0.9890909091) (16,0.9818181818) (32,0.9890909091)};
+\addlegendentry{g\_pass\_at\_k\_tau\_4capn\_0.75}
+\addplot+[mark=*, thick, color=brown!80!black] coordinates {(2,0.9818181818) (4,0.9672727273) (8,0.9890909091) (16,0.9818181818) (32,0.9854545455)};
+\addlegendentry{mg\_pass\_at\_k\_4capn}
+\addplot+[mark=*, thick, color=green!50!black] coordinates {(1,0.9709090909) (2,0.9781818182) (4,0.977268557) (8,0.9927272727) (16,0.9854545455) (32,0.9890909091)};
+\addlegendentry{pagerank}
+\addplot+[mark=*, thick, color=magenta!70!black] coordinates {(1,0.9709090909) (2,0.9709090909) (4,0.9626895869) (8,0.9818181818) (16,0.9781818182) (32,0.9854545455)};
+\addlegendentry{pass\_at\_k\_4capn}
+\addplot+[mark=*, thick, color=cyan!80!black] coordinates {(1,0.9563636364) (2,0.9781818182) (4,0.9781818182) (8,0.9927272727) (16,0.9854545455) (32,0.9890909091)};
+\addlegendentry{rasch}
+\end{axis}
+\end{tikzpicture}
+\end{document}

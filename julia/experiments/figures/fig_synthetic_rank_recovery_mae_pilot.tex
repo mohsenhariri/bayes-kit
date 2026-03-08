@@ -1,0 +1,39 @@
+\documentclass[tikz,border=4pt]{standalone}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\begin{document}
+\begin{tikzpicture}
+\begin{axis}[
+width=13cm,
+height=8cm,
+title={Synthetic Rank Recovery: Mean Absolute Rank Error},
+xlabel={Trials per question (N)},
+ylabel={Mean absolute rank error},
+grid=both,
+legend pos=south east,
+legend cell align=left,
+xmode=log, log basis x=2,
+]
+\addplot+[mark=*, thick, color=black] coordinates {(1,0.1590909091) (2,0.09090909091) (4,0.09090909091) (8,0.09090909091) (16,0.09090909091) (32,0.09090909091)};
+\addlegendentry{avg}
+\addplot+[mark=*, thick, color=blue!70!black] coordinates {(1,0.1590909091) (2,0.09090909091) (4,0.09090909091) (8,0.09090909091) (16,0.09090909091) (32,0.09090909091)};
+\addlegendentry{bayes}
+\addplot+[mark=*, thick, color=teal!70!black] coordinates {(1,0.1590909091) (2,0.09090909091) (4,0.09090909091) (8,0.09090909091) (16,0.09090909091) (32,0.09090909091)};
+\addlegendentry{borda}
+\addplot+[mark=*, thick, color=red!70!black] coordinates {(1,0.1363636364) (2,0.09090909091) (4,0.09090909091) (8,0.09090909091) (16,0.09090909091) (32,0.09090909091)};
+\addlegendentry{bradley\_terry\_davidson}
+\addplot+[mark=*, thick, color=orange!90!black] coordinates {(1,1.636363636) (2,1.772727273) (4,1.727272727) (8,1.318181818) (16,1.545454545) (32,1.5)};
+\addlegendentry{elo}
+\addplot+[mark=*, thick, color=purple!70!black] coordinates {(1,0.1363636364) (2,0.09090909091) (4,0.09090909091) (8,0.09090909091) (16,0.09090909091) (32,0.09090909091)};
+\addlegendentry{glicko}
+\addplot+[mark=*, thick, color=brown!80!black] coordinates {(1,0.1590909091) (2,0.09090909091) (4,0.09090909091) (8,0.09090909091) (16,0.09090909091) (32,0.09090909091)};
+\addlegendentry{pagerank}
+\addplot+[mark=*, thick, color=green!50!black] coordinates {(1,0.1363636364) (2,0.09090909091) (4,0.09090909091) (8,0.09090909091) (16,0.09090909091) (32,0.09090909091)};
+\addlegendentry{plackett\_luce}
+\addplot+[mark=*, thick, color=magenta!70!black] coordinates {(1,0.2272727273) (2,0.09090909091) (4,0.09090909091) (8,0.09090909091) (16,0.09090909091) (32,0.09090909091)};
+\addlegendentry{rasch}
+\addplot+[mark=*, thick, color=cyan!80!black] coordinates {(1,0.1818181818) (2,0.09090909091) (4,0.09090909091) (8,0.09090909091) (16,0.09090909091) (32,0.09090909091)};
+\addlegendentry{thompson}
+\end{axis}
+\end{tikzpicture}
+\end{document}

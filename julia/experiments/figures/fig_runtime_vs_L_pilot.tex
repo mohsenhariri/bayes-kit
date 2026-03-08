@@ -1,0 +1,96 @@
+\documentclass[tikz,border=4pt]{standalone}
+\usepackage{pgfplots}
+\usepgfplotslibrary{groupplots}
+\pgfplotsset{compat=1.18}
+\begin{document}
+\begin{tikzpicture}
+\begin{groupplot}[
+group style={group size=3 by 2, horizontal sep=1.5cm, vertical sep=2.0cm},
+width=6.1cm,
+height=4.8cm,
+grid=both,
+legend to name=combinedlegend,
+legend columns=5,
+ymode=log,
+]
+\nextgroupplot[title={M=100, N=1}, ylabel={Wall time (s)}]
+\addplot+[mark=*, thick, color=black] coordinates {(4,0.0002321895) (8,0.000221281) (16,0.0004617205)};
+\addlegendentry{alpharank}
+\addplot+[mark=*, thick, color=blue!70!black] coordinates {(4,0.000163129) (8,0.000137928) (16,0.0005803835)};
+\addlegendentry{avg}
+\addplot+[mark=*, thick, color=teal!70!black] coordinates {(4,0.0001112895) (8,6.58535e-05) (16,0.0001219705)};
+\addlegendentry{bayes}
+\addplot+[mark=*, thick, color=red!70!black] coordinates {(4,0.000185888) (8,0.0001217295) (16,0.0001400665)};
+\addlegendentry{borda}
+\addplot+[mark=*, thick, color=orange!90!black] coordinates {(4,0.000342435) (8,0.0004320685) (16,0.005283128)};
+\addlegendentry{bradley\_terry}
+\addplot+[mark=*, thick, color=purple!70!black] coordinates {(4,0.000122808) (8,0.000121329) (16,0.000687842)};
+\addlegendentry{elo}
+\addplot+[mark=*, thick, color=brown!80!black] coordinates {(4,0.0766947665) (8,0.422767271)};
+\addlegendentry{kemeny\_young}
+\addplot+[mark=*, thick, color=green!50!black] coordinates {(4,0.0001086835) (8,6.5507e-05) (16,0.000193094)};
+\addlegendentry{pagerank}
+\addplot+[mark=*, thick, color=magenta!70!black] coordinates {(4,7.8365e-05) (8,7.69625e-05) (16,0.0001954435)};
+\addlegendentry{plackett\_luce}
+\addplot+[mark=*, thick, color=cyan!80!black] coordinates {(4,0.0627108165) (8,0.04612389) (16,0.1026894575)};
+\addlegendentry{rasch}
+\nextgroupplot[title={M=100, N=4}]
+\addplot+[mark=*, thick, color=black] coordinates {(4,0.000161255) (8,0.000194618) (16,0.0004086475)};
+\addplot+[mark=*, thick, color=blue!70!black] coordinates {(4,0.000146115) (8,0.000637341) (16,0.000260439)};
+\addplot+[mark=*, thick, color=teal!70!black] coordinates {(4,7.52185e-05) (8,8.93915e-05) (16,0.000185752)};
+\addplot+[mark=*, thick, color=red!70!black] coordinates {(4,0.000161879) (8,0.000127619) (16,0.000171358)};
+\addplot+[mark=*, thick, color=orange!90!black] coordinates {(4,0.000161205) (8,0.0008138225) (16,0.012118376)};
+\addplot+[mark=*, thick, color=purple!70!black] coordinates {(4,0.00010772) (8,0.0003428475) (16,0.0016448415)};
+\addplot+[mark=*, thick, color=brown!80!black] coordinates {(4,0.0762553545) (8,0.375609468)};
+\addplot+[mark=*, thick, color=green!50!black] coordinates {(4,7.72055e-05) (8,6.1684e-05) (16,0.000167736)};
+\addplot+[mark=*, thick, color=magenta!70!black] coordinates {(4,7.84125e-05) (8,0.0001171695) (16,0.0004316505)};
+\addplot+[mark=*, thick, color=cyan!80!black] coordinates {(4,0.022239991) (8,0.0416997315) (16,0.0967364435)};
+\nextgroupplot[title={M=1000, N=1}]
+\addplot+[mark=*, thick, color=black] coordinates {(4,0.0002808995) (8,0.000821311) (16,0.001750904)};
+\addplot+[mark=*, thick, color=blue!70!black] coordinates {(4,0.0003804025) (8,0.000551478) (16,0.000722931)};
+\addplot+[mark=*, thick, color=teal!70!black] coordinates {(4,0.000208794) (8,0.0003183805) (16,0.000604424)};
+\addplot+[mark=*, thick, color=red!70!black] coordinates {(4,0.0003278165) (8,0.0005128325) (16,0.00059369)};
+\addplot+[mark=*, thick, color=orange!90!black] coordinates {(4,0.000233875) (8,0.001338555) (16,0.0122811875)};
+\addplot+[mark=*, thick, color=purple!70!black] coordinates {(4,0.000384281) (8,0.000845289) (16,0.003840098)};
+\addplot+[mark=*, thick, color=brown!80!black] coordinates {(4,0.113476436) (8,0.3834298245)};
+\addplot+[mark=*, thick, color=green!50!black] coordinates {(4,0.000165932) (8,0.000504364) (16,0.001468263)};
+\addplot+[mark=*, thick, color=magenta!70!black] coordinates {(4,9.38335e-05) (8,0.000423191) (16,0.001076164)};
+\addplot+[mark=*, thick, color=cyan!80!black] coordinates {(4,2.175215169) (8,4.943636157) (16,8.954713593)};
+\nextgroupplot[title={M=1000, N=4}, ylabel={Wall time (s)}, xlabel={Models (L)}]
+\addplot+[mark=*, thick, color=black] coordinates {(4,0.0001835875) (8,0.000434357) (16,0.0020549385)};
+\addplot+[mark=*, thick, color=blue!70!black] coordinates {(4,0.0007138005) (8,0.001220315) (16,0.0015135825)};
+\addplot+[mark=*, thick, color=teal!70!black] coordinates {(4,0.0004056825) (8,0.0004805155) (16,0.0008860445)};
+\addplot+[mark=*, thick, color=red!70!black] coordinates {(4,0.0002793815) (8,0.0004142505) (16,0.000973772)};
+\addplot+[mark=*, thick, color=orange!90!black] coordinates {(4,0.000671267) (8,0.0029391315) (16,0.0161224575)};
+\addplot+[mark=*, thick, color=purple!70!black] coordinates {(4,0.0008073835) (8,0.003213795) (16,0.0156973855)};
+\addplot+[mark=*, thick, color=brown!80!black] coordinates {(4,0.07003186) (8,0.3373481575)};
+\addplot+[mark=*, thick, color=green!50!black] coordinates {(4,0.00012131) (8,0.0002952635) (16,0.00119192)};
+\addplot+[mark=*, thick, color=magenta!70!black] coordinates {(4,0.0002377825) (8,0.0008969555) (16,0.0040630885)};
+\addplot+[mark=*, thick, color=cyan!80!black] coordinates {(4,2.187968876) (8,4.189952207) (16,9.508458016)};
+\nextgroupplot[title={M=500, N=1}, xlabel={Models (L)}]
+\addplot+[mark=*, thick, color=black] coordinates {(4,0.000158375) (8,0.0004022355) (16,0.0009913385)};
+\addplot+[mark=*, thick, color=blue!70!black] coordinates {(4,0.0002179745) (8,0.000631515) (16,0.0004221005)};
+\addplot+[mark=*, thick, color=teal!70!black] coordinates {(4,0.0001319515) (8,0.000192308) (16,0.000342385)};
+\addplot+[mark=*, thick, color=red!70!black] coordinates {(4,0.00015677) (8,0.0002005205) (16,0.0003518605)};
+\addplot+[mark=*, thick, color=orange!90!black] coordinates {(4,0.000373384) (8,0.0008283235) (16,0.0112721415)};
+\addplot+[mark=*, thick, color=purple!70!black] coordinates {(4,0.0001728325) (8,0.0009666205) (16,0.001894018)};
+\addplot+[mark=*, thick, color=brown!80!black] coordinates {(4,0.089261471) (8,0.363564441)};
+\addplot+[mark=*, thick, color=green!50!black] coordinates {(4,9.9519e-05) (8,0.0002197635) (16,0.0007490735)};
+\addplot+[mark=*, thick, color=magenta!70!black] coordinates {(4,8.05425e-05) (8,0.0001607045) (16,0.0005504505)};
+\addplot+[mark=*, thick, color=cyan!80!black] coordinates {(4,0.634563355) (8,1.136901946) (16,1.95361298)};
+\nextgroupplot[title={M=500, N=4}, xlabel={Models (L)}]
+\addplot+[mark=*, thick, color=black] coordinates {(4,0.0001758865) (8,0.0003142705) (16,0.0013797075)};
+\addplot+[mark=*, thick, color=blue!70!black] coordinates {(4,0.0003888675) (8,0.0008843535) (16,0.0008110405)};
+\addplot+[mark=*, thick, color=teal!70!black] coordinates {(4,0.0001915815) (8,0.0002951305) (16,0.0005313865)};
+\addplot+[mark=*, thick, color=red!70!black] coordinates {(4,0.000226302) (8,0.0004822425) (16,0.00078154)};
+\addplot+[mark=*, thick, color=orange!90!black] coordinates {(4,0.0002966125) (8,0.0021444225) (16,0.013890105)};
+\addplot+[mark=*, thick, color=purple!70!black] coordinates {(4,0.000419931) (8,0.001607378) (16,0.0076176905)};
+\addplot+[mark=*, thick, color=brown!80!black] coordinates {(4,0.0797748065) (8,0.342827494)};
+\addplot+[mark=*, thick, color=green!50!black] coordinates {(4,0.0001012085) (8,0.000185087) (16,0.0012168085)};
+\addplot+[mark=*, thick, color=magenta!70!black] coordinates {(4,0.000163809) (8,0.000496279) (16,0.002059947)};
+\addplot+[mark=*, thick, color=cyan!80!black] coordinates {(4,0.6608741515) (8,1.352092116) (16,2.267955597)};
+\end{groupplot}
+\path (current bounding box.south) node[below=1.2cm] {\pgfplotslegendfromname{combinedlegend}};
+\path (current bounding box.north) node[above=0.7cm,font=\bfseries] {Runtime vs L};
+\end{tikzpicture}
+\end{document}
