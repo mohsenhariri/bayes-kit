@@ -3,7 +3,7 @@
 `scorio` implements the Bayes@N framework introduced in [Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation](https://arxiv.org/abs/2510.04265).
 
 [![arXiv (Bayes Evaluation)](https://img.shields.io/badge/arXiv-2510.04265-b31b1b.svg)](https://arxiv.org/abs/2510.04265)
-[![arXiv (Bayes Ranking)](https://img.shields.io/badge/arXiv-2510.04265-b31b1b.svg)](https://arxiv.org/abs/2510.04265)
+[![arXiv (Bayes Ranking)](https://img.shields.io/badge/arXiv-2603.10960-b31b1b.svg)](https://arxiv.org/abs/2603.10960)
 [![ICLR 2026](https://img.shields.io/badge/ICLR-2026-blue.svg)](https://iclr.cc/virtual/2026/poster/10009669)
 [![PyPI version](https://img.shields.io/pypi/v/scorio.svg)](https://pypi.org/project/scorio/)
 [![Python versions](https://img.shields.io/pypi/pyversions/scorio.svg)](https://pypi.org/project/scorio/)
@@ -14,7 +14,7 @@
 
 ## News
 
-- **February 2026**: New paper released: ["Ranking Reasoning LLMs under Test-Time Scaling"](https://arxiv.org/abs/2510.04265)
+- **March 2026**: New paper released: ["Ranking Reasoning LLMs under Test-Time Scaling"](https://arxiv.org/abs/2603.10960)
 - **February 2026**: Our paper ["Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation"](https://iclr.cc/virtual/2026/poster/10009669) has been accepted to **ICLR 2026**.
 - **February 2026**: Reasoning traces will be released in about 2 weeks.
 
@@ -103,9 +103,10 @@ If you use `scorio` in your research, please cite:
 @article{hariri2026ranking,
   title={Ranking Reasoning LLMs under Test-Time Scaling},
   author={Hariri, Mohsen and Hinczewski, Michael and Ma, Jing and Chaudhary, Vipin},
-  journal={arXiv preprint arXiv:2510.04265},
+  journal={arXiv preprint arXiv:2603.10960},
   year={2026},
-  url={https://arxiv.org/abs/2510.04265}
+  doi={10.48550/arXiv.2603.10960},
+  url={https://arxiv.org/abs/2603.10960}
 }
 ```
 

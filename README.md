@@ -1,7 +1,7 @@
 # Scorio
 
 [![arXiv (Bayes Evaluation)](https://img.shields.io/badge/arXiv-2510.04265-b31b1b.svg)](https://arxiv.org/abs/2510.04265)
-[![arXiv (Bayes Ranking)](https://img.shields.io/badge/arXiv-2510.04265-b31b1b.svg)](https://arxiv.org/abs/2510.04265)
+[![arXiv (Bayes Ranking)](https://img.shields.io/badge/arXiv-2603.10960-b31b1b.svg)](https://arxiv.org/abs/2603.10960)
 [![ICLR 2026](https://img.shields.io/badge/ICLR-2026-blue.svg)](https://iclr.cc/virtual/2026/poster/10009669)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](#license)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
@@ -13,11 +13,11 @@
 
 ## News
 
-- **February 2026** ✨: New paper released: ["Ranking Reasoning LLMs under Test-Time Scaling"](https://arxiv.org/abs/2510.04265)
+- **March 2026** ✨: New paper released: ["Ranking Reasoning LLMs under Test-Time Scaling"](https://arxiv.org/abs/2603.10960)
 
 - **February 2026** 🎉: Our paper ["Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation"](https://iclr.cc/virtual/2026/poster/10009669) has been accepted to **ICLR 2026**!
 
-- **February 2026** 🔜: Reasoning traces will be released in ~2 weeks.
+- **March 2026** 🔜: Reasoning traces will be released soon.
 
 ---
 
@@ -200,9 +200,10 @@ If you use Scorio in your research, please cite the relevant papers:
 @article{hariri2026ranking,
   title={Ranking Reasoning LLMs under Test-Time Scaling},
   author={Hariri, Mohsen and Hinczewski, Michael and Ma, Jing and Chaudhary, Vipin},
-  journal={arXiv preprint arXiv:2510.04265},
+  journal={arXiv preprint arXiv:2603.10960},
   year={2026},
-  url={https://arxiv.org/abs/2510.04265}
+  doi={10.48550/arXiv.2603.10960},
+  url={https://arxiv.org/abs/2603.10960}
 }
 ```
 
@@ -221,5 +222,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Issues**: [github.com/mohsenhariri/scorio/issues](https://github.com/mohsenhariri/scorio/issues)
 - **Papers**:
   - [Don't Pass@k (ICLR 2026)](https://iclr.cc/virtual/2026/poster/10009669) | [arXiv](https://arxiv.org/abs/2510.04265)
-  - [Ranking Reasoning LLMs](https://arxiv.org/abs/2510.04265)
-
+  - [Ranking Reasoning LLMs](https://arxiv.org/abs/2603.10960)
