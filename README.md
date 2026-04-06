@@ -13,11 +13,11 @@
 
 ## News
 
-- **March 2026** ✨: New paper released: ["Ranking Reasoning LLMs under Test-Time Scaling"](https://arxiv.org/abs/2603.10960)
+- **April 2026** 🎉: Our ranking paper ["Ranking Reasoning LLMs under Test-Time Scaling"](https://arxiv.org/abs/2603.10960) has been accepted to **ACL 2026 Main Conference**!
 
 - **February 2026** 🎉: Our paper ["Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation"](https://iclr.cc/virtual/2026/poster/10009669) has been accepted to **ICLR 2026**!
 
-- **March 2026** 🔜: Reasoning traces will be released soon.
+- **April 2026** 🔜: Reasoning traces will be released soon.
 
 ---
 

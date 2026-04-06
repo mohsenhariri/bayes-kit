@@ -1,11 +1,13 @@
-from __future__ import annotations
-
+import sys
 from pathlib import Path
 
 import numpy as np
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 DATA_DIR = ROOT / "tests" / "data"
 TOP_P_PATH = DATA_DIR / "R_top_p.npz"
 GREEDY_PATH = DATA_DIR / "R_greedy.npz"

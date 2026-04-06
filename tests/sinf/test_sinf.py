@@ -1,7 +1,5 @@
 """Comprehensive tests for scorio.sinf sequential inference helpers."""
 
-from __future__ import annotations
-
 import math
 
 import numpy as np

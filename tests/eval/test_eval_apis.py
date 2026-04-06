@@ -153,6 +153,86 @@ def _mg_pass_at_k_reference(R: np.ndarray, k: int) -> float:
     return float(np.mean(values))
 
 
+def _auc_at_k_reference(R: np.ndarray, k: int) -> float:
+    Rm = np.asarray(R, dtype=int)
+    M, N = Rm.shape
+
+    pass_vals = np.empty(k, dtype=float)
+    for j in range(1, k + 1):
+        denom = float(comb(N, j))
+        row_vals = np.empty(M, dtype=float)
+        for row in range(M):
+            nu = int(np.sum(Rm[row]))
+            row_vals[row] = 1.0 - float(comb(N - nu, j)) / denom
+        pass_vals[j - 1] = float(np.mean(row_vals))
+
+    if k == 1:
+        return float(pass_vals[0])
+
+    coeff = np.full(k, 1.0 / (k - 1), dtype=float)
+    coeff[0] = 0.5 / (k - 1)
+    coeff[-1] = 0.5 / (k - 1)
+    return float(np.dot(coeff, pass_vals))
+
+
+def _maj_at_k_reference(R: np.ndarray, k: int) -> float:
+    Rm = np.asarray(R, dtype=int)
+    M, N = Rm.shape
+    denom = float(comb(N, k))
+    j0 = (k // 2) + 1
+
+    values = np.empty(M, dtype=float)
+    for row in range(M):
+        nu = int(np.sum(Rm[row]))
+        total = 0.0
+        for j in range(j0, k + 1):
+            total += float(comb(nu, j) * comb(N - nu, k - j)) / denom
+        values[row] = total
+    return float(np.mean(values))
+
+
+def _max_at_k_reference(
+    R: np.ndarray,
+    k: int,
+    w: np.ndarray | None = None,
+) -> float:
+    Rm = np.asarray(R, dtype=int)
+    if Rm.ndim == 1:
+        Rm = Rm.reshape(1, -1)
+
+    wv = np.array([0.0, 1.0], dtype=float) if w is None else np.asarray(w, dtype=float)
+
+    M, N = Rm.shape
+    coeff = comb(np.arange(k - 1, N, dtype=float), k - 1) / float(comb(N, k))
+
+    values = np.empty(M, dtype=float)
+    for row in range(M):
+        sorted_rewards = np.sort(wv[Rm[row]])
+        values[row] = float(np.dot(coeff, sorted_rewards[k - 1 :]))
+    return float(np.mean(values))
+
+
+def _threshold_spectrum_reference(
+    R: np.ndarray,
+    k: int,
+    weights: np.ndarray,
+) -> float:
+    Rm = np.asarray(R, dtype=int)
+    M, N = Rm.shape
+    wv = np.asarray(weights, dtype=float)
+
+    denom = float(comb(N, k))
+    nu = np.sum(Rm, axis=1)
+    levels = np.cumsum(wv, dtype=float)
+    values = np.zeros(M, dtype=float)
+    for j in range(1, k + 1):
+        credit = float(levels[j - 1])
+        if credit == 0.0:
+            continue
+        values += credit * comb(nu, j) * comb(N - nu, k - j) / denom
+    return float(np.mean(values))
+
+
 def test_bayes_multiclass_matches_closed_form_reference(
     multiclass_ref: tuple[np.ndarray, np.ndarray, np.ndarray],
 ) -> None:
@@ -282,7 +362,7 @@ def test_pass_family_monotonicity_and_bounds(binary_ref: np.ndarray) -> None:
         assert pass_vals[idx] >= pass_vals[idx - 1]
         assert pass_hat_vals[idx] <= pass_hat_vals[idx - 1]
 
-    for p, ph in zip(pass_vals, pass_hat_vals):
+    for p, ph in zip(pass_vals, pass_hat_vals, strict=True):
         assert p >= ph
         assert 0.0 <= ph <= 1.0
         assert 0.0 <= p <= 1.0
@@ -323,6 +403,258 @@ def test_pass_mg_k1_edge_case(binary_ref: np.ndarray) -> None:
     )
 
 
+def test_auc_matches_reference_and_k1_equivalence(binary_ref: np.ndarray) -> None:
+    k = 3
+
+    assert scorio_eval.auc_at_k(binary_ref, k) == pytest.approx(
+        _auc_at_k_reference(binary_ref, k)
+    )
+    assert scorio_eval.auc_at_k(binary_ref, 1) == pytest.approx(
+        scorio_eval.pass_at_k(binary_ref, 1)
+    )
+
+    np.testing.assert_allclose(
+        scorio_eval.auc_at_k_ci(binary_ref, 1),
+        scorio_eval.pass_at_k_ci(binary_ref, 1),
+    )
+
+
+def test_majority_matches_reference_and_threshold_equivalences(
+    binary_ref: np.ndarray,
+) -> None:
+    k = 3
+    tau = ((k // 2) + 1) / k
+
+    assert scorio_eval.maj_at_k(binary_ref, k) == pytest.approx(
+        _maj_at_k_reference(binary_ref, k)
+    )
+    assert scorio_eval.maj_at_k(binary_ref, k) == pytest.approx(
+        scorio_eval.g_pass_at_k_tau(binary_ref, k, tau=tau)
+    )
+
+    np.testing.assert_allclose(
+        scorio_eval.maj_at_k_ci(binary_ref, k),
+        scorio_eval.g_pass_at_k_tau_ci(binary_ref, k, tau=tau),
+    )
+
+    assert scorio_eval.maj_at_k(binary_ref, 1) == pytest.approx(
+        scorio_eval.pass_hat_k(binary_ref, 1)
+    )
+    assert scorio_eval.maj_at_k(binary_ref, 2) == pytest.approx(
+        scorio_eval.pass_hat_k(binary_ref, 2)
+    )
+
+
+def test_max_reward_matches_reference_and_binary_pass_equivalence(
+    binary_ref: np.ndarray,
+) -> None:
+    k = 3
+
+    assert scorio_eval.max_at_k(binary_ref, k) == pytest.approx(
+        _max_at_k_reference(binary_ref, k)
+    )
+    assert scorio_eval.max_at_k(binary_ref, k) == pytest.approx(
+        scorio_eval.pass_at_k(binary_ref, k)
+    )
+
+
+def test_max_reward_weighted_categorical_support(
+    multiclass_ref: tuple[np.ndarray, np.ndarray, np.ndarray],
+) -> None:
+    R, w, R0 = multiclass_ref
+    k = 2
+
+    assert scorio_eval.max_at_k(R, k, w=w) == pytest.approx(
+        _max_at_k_reference(R, k, w=w)
+    )
+
+    mu, sigma, lo, hi = scorio_eval.max_at_k_ci(R, k, w=w, R0=R0)
+    assert np.isfinite(mu)
+    assert np.isfinite(sigma)
+    assert np.isfinite(lo)
+    assert np.isfinite(hi)
+    assert sigma >= 0.0
+    assert lo <= mu <= hi
+    assert lo >= np.min(w)
+    assert hi <= np.max(w)
+
+
+def test_max_reward_k1_matches_bayes_ci(
+    multiclass_ref: tuple[np.ndarray, np.ndarray, np.ndarray],
+) -> None:
+    R, w, R0 = multiclass_ref
+    np.testing.assert_allclose(
+        scorio_eval.max_at_k_ci(R, 1, w=w, R0=R0),
+        scorio_eval.bayes_ci(R, w=w, R0=R0),
+    )
+
+
+def test_max_reward_requires_weights_for_non_binary(
+    multiclass_ref: tuple[np.ndarray, np.ndarray, np.ndarray],
+) -> None:
+    R, _, _ = multiclass_ref
+    with pytest.raises(ValueError, match="weight vector 'w' must be provided"):
+        scorio_eval.max_at_k(R, 2)
+
+
+def test_spectrum_weight_generators_match_expected_values() -> None:
+    np.testing.assert_array_equal(
+        scorio_eval.unanimous_spectrum_weights(4),
+        np.array([0.0, 0.0, 0.0, 1.0], dtype=float),
+    )
+    np.testing.assert_array_equal(
+        scorio_eval.mg_spectrum_weights(1),
+        np.array([0.0], dtype=float),
+    )
+    np.testing.assert_array_equal(
+        scorio_eval.mg_spectrum_weights(4),
+        np.array([0.0, 0.0, 0.5, 0.5], dtype=float),
+    )
+
+
+def test_threshold_spectrum_matches_reference_and_special_cases(
+    binary_ref: np.ndarray,
+) -> None:
+    k = 3
+    custom_weights = np.array([0.2, 0.1, 0.4], dtype=float)
+    unanimous_weights = scorio_eval.unanimous_spectrum_weights(k)
+    mg_weights = scorio_eval.mg_spectrum_weights(k)
+
+    assert scorio_eval.threshold_spectrum_at_k(
+        binary_ref, k, custom_weights
+    ) == pytest.approx(_threshold_spectrum_reference(binary_ref, k, custom_weights))
+    assert scorio_eval.threshold_spectrum_at_k(
+        binary_ref, k, unanimous_weights
+    ) == pytest.approx(_threshold_spectrum_reference(binary_ref, k, unanimous_weights))
+    assert scorio_eval.threshold_spectrum_at_k(
+        binary_ref, k, mg_weights
+    ) == pytest.approx(_threshold_spectrum_reference(binary_ref, k, mg_weights))
+
+    assert scorio_eval.threshold_spectrum_at_k(
+        binary_ref, k, unanimous_weights
+    ) == pytest.approx(scorio_eval.pass_hat_k(binary_ref, k))
+    assert scorio_eval.threshold_spectrum_at_k(
+        binary_ref, k, mg_weights
+    ) == pytest.approx(scorio_eval.mg_pass_at_k(binary_ref, k))
+
+
+def test_geometric_family_matches_closed_form_blends_and_aliases(
+    binary_ref: np.ndarray,
+) -> None:
+    k = 3
+    custom_weights = np.array([0.2, 0.1, 0.4], dtype=float)
+
+    pass_score = scorio_eval.pass_at_k(binary_ref, k)
+    unanimous_score = scorio_eval.pass_hat_k(binary_ref, k)
+    mg_score = scorio_eval.mg_pass_at_k(binary_ref, k)
+    custom_spectrum = scorio_eval.threshold_spectrum_at_k(binary_ref, k, custom_weights)
+
+    assert pass_score > 0.0
+
+    assert scorio_eval.geom_at_k(binary_ref, k) == pytest.approx(
+        math.sqrt(pass_score * unanimous_score)
+    )
+    assert scorio_eval.geo_spectrum_at_k(binary_ref, k) == pytest.approx(
+        math.sqrt(pass_score * mg_score)
+    )
+    assert scorio_eval.geo_spectrum_star_at_k(binary_ref, k) == pytest.approx(
+        scorio_eval.geo_spectrum_at_k(binary_ref, k)
+    )
+
+    assert scorio_eval.geo_spectrum_at_k(
+        binary_ref, k, lam=0.0, weights=custom_weights
+    ) == pytest.approx(custom_spectrum)
+    assert scorio_eval.geo_spectrum_at_k(
+        binary_ref, k, lam=1.0, weights=custom_weights
+    ) == pytest.approx(pass_score)
+    assert scorio_eval.geo_spectrum_at_k(
+        binary_ref, k, lam=0.25, weights=custom_weights
+    ) == pytest.approx(
+        scorio_eval.geo_spectrum_at_k(
+            binary_ref, k, lambda_=0.25, weights=custom_weights
+        )
+    )
+
+    assert scorio_eval.geometric_pass_favoring_at_k(binary_ref, k) == pytest.approx(
+        (pass_score**0.75) * (unanimous_score**0.25)
+    )
+    assert scorio_eval.geometric_unanimous_favoring_at_k(
+        binary_ref, k
+    ) == pytest.approx((pass_score**0.25) * (unanimous_score**0.75))
+    assert scorio_eval.sqrt_pu_over_p_at_k(binary_ref, k) == pytest.approx(
+        math.sqrt(unanimous_score / pass_score)
+    )
+
+    zero_ref = np.zeros((3, 5), dtype=int)
+    assert scorio_eval.sqrt_pu_over_p_at_k(zero_ref, 2) == pytest.approx(0.0)
+
+
+def test_geometric_ci_special_cases_and_aliases(binary_ref: np.ndarray) -> None:
+    k = 3
+    custom_weights = np.array([0.2, 0.1, 0.4], dtype=float)
+    unanimous_weights = scorio_eval.unanimous_spectrum_weights(k)
+    mg_weights = scorio_eval.mg_spectrum_weights(k)
+
+    np.testing.assert_allclose(
+        scorio_eval.threshold_spectrum_at_k_ci(binary_ref, k, unanimous_weights),
+        scorio_eval.pass_hat_k_ci(binary_ref, k),
+    )
+    np.testing.assert_allclose(
+        scorio_eval.threshold_spectrum_at_k_ci(binary_ref, k, mg_weights),
+        scorio_eval.mg_pass_at_k_ci(binary_ref, k),
+    )
+    np.testing.assert_allclose(
+        scorio_eval.geo_spectrum_at_k_ci(
+            binary_ref, k, lam=0.0, weights=custom_weights
+        ),
+        scorio_eval.threshold_spectrum_at_k_ci(binary_ref, k, custom_weights),
+    )
+    np.testing.assert_allclose(
+        scorio_eval.geo_spectrum_at_k_ci(
+            binary_ref, k, lam=1.0, weights=custom_weights
+        ),
+        scorio_eval.pass_at_k_ci(binary_ref, k),
+    )
+    np.testing.assert_allclose(
+        scorio_eval.geom_at_k_ci(binary_ref, k),
+        scorio_eval.geo_spectrum_at_k_ci(
+            binary_ref, k, lam=0.5, weights=unanimous_weights
+        ),
+    )
+    np.testing.assert_allclose(
+        scorio_eval.geo_spectrum_star_at_k_ci(binary_ref, k),
+        scorio_eval.geo_spectrum_at_k_ci(binary_ref, k),
+    )
+
+
+@pytest.mark.parametrize(
+    "fn",
+    [scorio_eval.unanimous_spectrum_weights, scorio_eval.mg_spectrum_weights],
+)
+def test_spectrum_weight_generators_require_positive_k(fn) -> None:
+    with pytest.raises(ValueError, match="k must be >= 1"):
+        fn(0)
+
+
+def test_spectrum_family_rejects_invalid_weights(binary_ref: np.ndarray) -> None:
+    with pytest.raises(ValueError, match="length-3"):
+        scorio_eval.threshold_spectrum_at_k(binary_ref, 3, np.array([1.0, 0.0]))
+    with pytest.raises(ValueError, match="non-negative"):
+        scorio_eval.threshold_spectrum_at_k(binary_ref, 3, np.array([0.2, -0.1, 0.3]))
+    with pytest.raises(ValueError, match="sum\\(weights\\) <= 1"):
+        scorio_eval.threshold_spectrum_at_k(binary_ref, 3, np.array([0.5, 0.4, 0.3]))
+
+
+@pytest.mark.parametrize(
+    "fn", [scorio_eval.geo_spectrum_at_k, scorio_eval.geo_spectrum_at_k_ci]
+)
+def test_geo_spectrum_rejects_invalid_lambda(binary_ref: np.ndarray, fn) -> None:
+    with pytest.raises(ValueError, match="lam must be in \\[0, 1\\]"):
+        fn(binary_ref, 3, lam=1.1)
+    with pytest.raises(TypeError, match="Specify at most one"):
+        fn(binary_ref, 3, lam=0.25, lambda_=0.5)
+
+
 @pytest.mark.parametrize(
     "fn",
     [
@@ -330,8 +662,13 @@ def test_pass_mg_k1_edge_case(binary_ref: np.ndarray) -> None:
         scorio_eval.pass_hat_k,
         scorio_eval.g_pass_at_k,
         scorio_eval.mg_pass_at_k,
+        scorio_eval.auc_at_k,
+        scorio_eval.maj_at_k,
+        scorio_eval.max_at_k,
         scorio_eval.pass_at_k_ci,
         scorio_eval.pass_hat_k_ci,
+        scorio_eval.auc_at_k_ci,
+        scorio_eval.maj_at_k_ci,
         scorio_eval.g_pass_at_k_ci,
         scorio_eval.mg_pass_at_k_ci,
     ],
@@ -376,6 +713,11 @@ def test_eval_apis_are_invariant_to_question_and_trial_permutations(
     assert scorio_eval.mg_pass_at_k(R, 3) == pytest.approx(
         scorio_eval.mg_pass_at_k(R_perm, 3)
     )
+    assert scorio_eval.auc_at_k(R, 3) == pytest.approx(
+        scorio_eval.auc_at_k(R_perm, 3)
+    )
+    assert scorio_eval.maj_at_k(R, 3) == pytest.approx(scorio_eval.maj_at_k(R_perm, 3))
+    assert scorio_eval.max_at_k(R, 3) == pytest.approx(scorio_eval.max_at_k(R_perm, 3))
 
 
 def test_eval_apis_on_simulation_dataset_slice(top_p_model_slice: np.ndarray) -> None:
@@ -392,19 +734,28 @@ def test_eval_apis_on_simulation_dataset_slice(top_p_model_slice: np.ndarray) ->
 
     p1 = scorio_eval.pass_at_k(R, 3)
     ph = scorio_eval.pass_hat_k(R, 3)
+    auc = scorio_eval.auc_at_k(R, 3)
+    maj = scorio_eval.maj_at_k(R, 3)
     gt = scorio_eval.g_pass_at_k_tau(R, 3, 0.7)
     mg = scorio_eval.mg_pass_at_k(R, 3)
+    mx = scorio_eval.max_at_k(R, 3)
     assert p1 >= gt >= ph
+    assert a <= auc <= p1
+    assert p1 >= maj >= ph
     assert 0.0 <= mg <= 1.0
+    assert 0.0 <= mx <= 1.0
 
     ci_outputs = [
         scorio_eval.bayes_ci(R),
         scorio_eval.avg_ci(R),
         scorio_eval.pass_at_k_ci(R, 3),
         scorio_eval.pass_hat_k_ci(R, 3),
+        scorio_eval.auc_at_k_ci(R, 3),
+        scorio_eval.maj_at_k_ci(R, 3),
         scorio_eval.g_pass_at_k_ci(R, 3),
         scorio_eval.g_pass_at_k_tau_ci(R, 3, 0.7),
         scorio_eval.mg_pass_at_k_ci(R, 3),
+        scorio_eval.max_at_k_ci(R, 3),
     ]
     for mu, sigma, lo, hi in ci_outputs:
         assert np.isfinite(mu)
@@ -424,16 +775,47 @@ def test_public_eval_api_exports_have_valid_smoke_calls(binary_ref: np.ndarray) 
         "avg_ci": lambda: scorio_eval.avg_ci(binary_ref),
         "pass_at_k": lambda: scorio_eval.pass_at_k(binary_ref, 2),
         "pass_hat_k": lambda: scorio_eval.pass_hat_k(binary_ref, 2),
+        "auc_at_k": lambda: scorio_eval.auc_at_k(binary_ref, 2),
+        "maj_at_k": lambda: scorio_eval.maj_at_k(binary_ref, 2),
         "g_pass_at_k": lambda: scorio_eval.g_pass_at_k(binary_ref, 2),
         "g_pass_at_k_tau": lambda: scorio_eval.g_pass_at_k_tau(binary_ref, 2, tau=0.7),
         "mg_pass_at_k": lambda: scorio_eval.mg_pass_at_k(binary_ref, 2),
+        "threshold_spectrum_at_k": lambda: scorio_eval.threshold_spectrum_at_k(
+            binary_ref, 2, scorio_eval.mg_spectrum_weights(2)
+        ),
+        "unanimous_spectrum_weights": lambda: scorio_eval.unanimous_spectrum_weights(2),
+        "mg_spectrum_weights": lambda: scorio_eval.mg_spectrum_weights(2),
+        "geom_at_k": lambda: scorio_eval.geom_at_k(binary_ref, 2),
+        "geo_spectrum_at_k_ci": lambda: scorio_eval.geo_spectrum_at_k_ci(binary_ref, 2),
+        "geo_spectrum_at_k": lambda: scorio_eval.geo_spectrum_at_k(binary_ref, 2),
+        "geo_spectrum_star_at_k": lambda: scorio_eval.geo_spectrum_star_at_k(
+            binary_ref, 2
+        ),
+        "geometric_pass_favoring_at_k": lambda: scorio_eval.geometric_pass_favoring_at_k(
+            binary_ref, 2
+        ),
+        "geometric_unanimous_favoring_at_k": lambda: scorio_eval.geometric_unanimous_favoring_at_k(
+            binary_ref, 2
+        ),
+        "sqrt_pu_over_p_at_k": lambda: scorio_eval.sqrt_pu_over_p_at_k(binary_ref, 2),
+        "max_at_k": lambda: scorio_eval.max_at_k(binary_ref, 2),
         "pass_at_k_ci": lambda: scorio_eval.pass_at_k_ci(binary_ref, 2),
         "pass_hat_k_ci": lambda: scorio_eval.pass_hat_k_ci(binary_ref, 2),
+        "auc_at_k_ci": lambda: scorio_eval.auc_at_k_ci(binary_ref, 2),
+        "maj_at_k_ci": lambda: scorio_eval.maj_at_k_ci(binary_ref, 2),
         "g_pass_at_k_ci": lambda: scorio_eval.g_pass_at_k_ci(binary_ref, 2),
         "g_pass_at_k_tau_ci": lambda: scorio_eval.g_pass_at_k_tau_ci(
             binary_ref, 2, tau=0.7
         ),
         "mg_pass_at_k_ci": lambda: scorio_eval.mg_pass_at_k_ci(binary_ref, 2),
+        "max_at_k_ci": lambda: scorio_eval.max_at_k_ci(binary_ref, 2),
+        "threshold_spectrum_at_k_ci": lambda: scorio_eval.threshold_spectrum_at_k_ci(
+            binary_ref, 2, scorio_eval.mg_spectrum_weights(2)
+        ),
+        "geom_at_k_ci": lambda: scorio_eval.geom_at_k_ci(binary_ref, 2),
+        "geo_spectrum_star_at_k_ci": lambda: scorio_eval.geo_spectrum_star_at_k_ci(
+            binary_ref, 2
+        ),
     }
 
     assert set(api_calls) == set(scorio_eval.__all__)
@@ -456,6 +838,15 @@ def test_public_eval_api_exports_have_valid_smoke_calls(binary_ref: np.ndarray) 
             assert np.isfinite(mu)
             assert np.isfinite(sigma)
             assert sigma >= 0.0
+            continue
+
+        if name in {"unanimous_spectrum_weights", "mg_spectrum_weights"}:
+            assert isinstance(out, np.ndarray)
+            assert out.ndim == 1
+            assert len(out) == 2
+            assert np.all(np.isfinite(out))
+            assert np.all(out >= 0.0)
+            assert float(np.sum(out)) <= 1.0 + 1e-12
             continue
 
         assert np.isfinite(out)

@@ -1,9 +1,8 @@
-"""Average family metrics with Bayesian uncertainty calibration.
+r"""Average accuracy metric with Bayesian uncertainty calibration.
 
-
-Let :math:`R \\in \\{0,\\ldots,C\\}^{M \\times N}` be outcomes and
-:math:`w \\in \\mathbb{R}^{C+1}` be optional category weights. The weighted
-average maps each entry :math:`R_{\\alpha i}` to :math:`w_{R_{\\alpha i}}` and
+Let :math:`R \in \{0,\ldots,C\}^{M \times N}` be outcomes and
+:math:`w \in \mathbb{R}^{C+1}` be optional category weights. The weighted
+average maps each entry :math:`R_{\alpha i}` to :math:`w_{R_{\alpha i}}` and
 averages across questions and trials.
 
 """
@@ -23,20 +22,20 @@ def _avg(
     R: np.ndarray,
     w: np.ndarray | None = None,
 ) -> float:
-    """
+    r"""
     Simple (optionally weighted) average of all entries in the result matrix.
 
     When **w** is omitted, *R* must be binary and the function returns the
     arithmetic mean of the entries.  When **w** is supplied, each entry
-    :math:`R_{\\alpha i}` is mapped through the weight vector before averaging.
+    :math:`R_{\alpha i}` is mapped through the weight vector before averaging.
 
     Args:
-        R: :math:`M \\times N` result matrix with entries in
-           :math:`\\{0, \\ldots, C\\}`.
-           Row :math:`\\alpha` contains the *N* outcomes for question
-           :math:`\\alpha`.
+        R: :math:`M \times N` result matrix with entries in
+           :math:`\{0, \ldots, C\}`.
+           Row :math:`\alpha` contains the *N* outcomes for question
+           :math:`\alpha`.
         w: optional length :math:`(C+1)` weight vector
-           :math:`(w_0, \\ldots, w_C)` that maps category *k* to score
+           :math:`(w_0, \ldots, w_C)` that maps category *k* to score
            :math:`w_k`.  If *None*, *R* must be binary and
            :math:`w = (0, 1)` is used.
 
@@ -44,14 +43,14 @@ def _avg(
         float: The (weighted) arithmetic mean of the mapped entries.
 
     Notation:
-        :math:`R_{\\alpha i}` is the outcome for question :math:`\\alpha`
+        :math:`R_{\alpha i}` is the outcome for question :math:`\alpha`
         on trial :math:`i`.
 
     Formula:
         .. math::
 
-            \\text{avg} = \\frac{1}{M \\cdot N}
-                \\sum_{\\alpha=1}^{M} \\sum_{i=1}^{N} w_{R_{\\alpha i}}
+            \text{avg} = \frac{1}{M \cdot N}
+                \sum_{\alpha=1}^{M} \sum_{i=1}^{N} w_{R_{\alpha i}}
 
         When :math:`w = (0, 1)` this reduces to the plain binary average.
 
@@ -86,44 +85,44 @@ def avg(
     R: np.ndarray,
     w: np.ndarray | None = None,
 ) -> tuple[float, float]:
-    """
-    Avg\u0040N plus a Bayesian uncertainty estimate (uniform prior, no R0).
+    r"""
+    Avg@N plus a Bayesian uncertainty estimate (uniform prior, no R0).
 
     Under a uniform Dirichlet prior (:math:`D = 0`), the Bayesian posterior
-    mean :math:`\\mu` is an affine transform of the naive (weighted) average
-    *a*, and the standard deviations are related by (Eq. 20 in the paper):
+    mean :math:`\mu` is an affine transform of the naive (weighted) average
+    *a*, and the standard deviations are related by (Eq. 20 in don't pass@k paper):
 
     .. math::
 
-        \\sigma_{\\text{avg}} = \\frac{T}{N}\\,\\sigma_{\\text{Bayes}}
+        \sigma_{\text{avg}} = \frac{T}{N}\,\sigma_{\text{Bayes}}
 
-    This lets you report the familiar **avg\u0040N** while using the Bayesian
+    This lets you report the familiar **avg@N** while using the Bayesian
     framework of Scorio to compute uncertainty -- no CLT and Wald intervals or
     bootstrap required.
 
     Args:
-        R: :math:`M \\times N` int matrix with entries in
-           :math:`\\{0, \\ldots, C\\}`.
-           Row :math:`\\alpha` contains the *N* outcomes for question
-           :math:`\\alpha`.
+        R: :math:`M \times N` int matrix with entries in
+           :math:`\{0, \ldots, C\}`.
+           Row :math:`\alpha` contains the *N* outcomes for question
+           :math:`\alpha`.
         w: optional length :math:`(C+1)` weight vector
-           :math:`(w_0, \\ldots, w_C)`.
+           :math:`(w_0, \ldots, w_C)`.
            If *None*, *R* must be binary and :math:`w = (0, 1)` is used.
 
     Returns:
         tuple[float, float]:
-            :math:`(a,\\; \\sigma_a)` where *a* is the (weighted) average and
-            :math:`\\sigma_a` is the Bayesian uncertainty rescaled to the
-            avg\u0040N scale.
+            :math:`(a,\; \sigma_a)` where *a* is the (weighted) average and
+            :math:`\sigma_a` is the Bayesian uncertainty rescaled to the
+            avg@N scale.
 
     Formula:
         Let :math:`T = 1 + C + N` (uniform prior, :math:`D = 0`).
 
         .. math::
 
-            a &= \\text{avg}(R, w)
+            a &= \text{avg}(R, w)
 
-            \\sigma_a &= \\frac{T}{N}\\,\\sigma_{\\text{Bayes}}(R, w)
+            \sigma_a &= \frac{T}{N}\,\sigma_{\text{Bayes}}(R, w)
 
     Examples:
         Binary (no weights):
@@ -168,35 +167,35 @@ def avg_ci(
     confidence: float = 0.95,
     bounds: tuple[float, float] | None = None,
 ) -> tuple[float, float, float, float]:
-    """
-    Avg\u0040N with Bayesian :math:`\\sigma` and a normal-approximation
+    r"""
+    Avg@N with Bayesian :math:`\sigma` and a normal-approximation
     credible interval (CrI).
 
     Combines :func:`avg` with a symmetric
     normal credible interval clipped to optional ``bounds``.
 
     Args:
-        R: :math:`M \\times N` int matrix with entries in
-           :math:`\\{0, \\ldots, C\\}`.
-           Row :math:`\\alpha` contains the *N* outcomes for question
-           :math:`\\alpha`.
+        R: :math:`M \times N` int matrix with entries in
+           :math:`\{0, \ldots, C\}`.
+           Row :math:`\alpha` contains the *N* outcomes for question
+           :math:`\alpha`.
         w: optional length :math:`(C+1)` weight vector
-           :math:`(w_0, \\ldots, w_C)`.
+           :math:`(w_0, \ldots, w_C)`.
            If *None*, *R* must be binary and :math:`w = (0, 1)` is used.
         confidence: credibility level of the interval (default 0.95).
         bounds: optional ``(lo, hi)`` clipping bounds for the interval.
 
     Returns:
         tuple[float, float, float, float]:
-            :math:`(a,\\; \\sigma_a,\\; \\text{lo},\\; \\text{hi})`
+            :math:`(a,\; \sigma_a,\; \text{lo},\; \text{hi})`
 
     Formula:
         .. math::
 
-            \\text{lo},\\; \\text{hi}
-              = a \\pm z_{(1+\\gamma)/2}\\,\\sigma_a
+            \text{lo},\; \text{hi}
+              = a \pm z_{(1+\gamma)/2}\,\sigma_a
 
-        where :math:`\\gamma` is the requested ``confidence`` level and
+        where :math:`\gamma` is the requested ``confidence`` level and
         the interval is clipped to ``bounds`` when provided.
 
     Examples:

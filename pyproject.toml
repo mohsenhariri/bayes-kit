@@ -103,3 +103,4 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 markers = ["slow: slow tests for heavy ranking APIs"]
+testpaths = ["tests"]

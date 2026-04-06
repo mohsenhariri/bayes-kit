@@ -1,7 +1,7 @@
 name = "Scorio"
 uuid = "8b85e2e0-9a7f-4d8f-8e1e-3c5c7d5e8e0a"
 authors = ["Mohsen Hariri <mohsen.hariri@case.edu>"]
-version = "0.2.0"
+version = "0.2.1"
 
 [deps]
 HiGHS = "87dc4568-4c63-4d18-b0c0-bb2238e4078b"
