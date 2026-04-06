@@ -90,15 +90,16 @@ def avg(
 
     Under a uniform Dirichlet prior (:math:`D = 0`), the Bayesian posterior
     mean :math:`\mu` is an affine transform of the naive (weighted) average
-    *a*, and the standard deviations are related by (Eq. 20 in don't pass@k paper):
+    *a*, and the standard deviations are related by Eq. 20 of the Bayes@N
+    paper:
 
     .. math::
 
         \sigma_{\text{avg}} = \frac{T}{N}\,\sigma_{\text{Bayes}}
 
     This lets you report the familiar **avg@N** while using the Bayesian
-    framework of Scorio to compute uncertainty -- no CLT and Wald intervals or
-    bootstrap required.
+    framework of ``scorio`` to compute uncertainty on the same scale, without
+    relying on CLT/Wald intervals or bootstrap resampling.
 
     Args:
         R: :math:`M \times N` int matrix with entries in

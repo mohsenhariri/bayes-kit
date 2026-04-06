@@ -1,7 +1,9 @@
-r""":math:`\mathrm{GeoSpectrum}_{\lambda,w}@k`, and approximate Bayesian credible intervals.
+r"""Geometric pass/spectrum metrics for binary outcomes.
 
-This module implements the finite-bank definitions from "Geom@k: Fast to Converge, Slow to Drift" in addition to
-first-order Beta-Bernoulli posterior approximation for latent resampling quantities.
+This module implements the finite-bank definitions from
+``Geom@k: Fast to Converge, Slow to Drift`` together with the approximate
+Beta-Bernoulli posterior summaries used by ``scorio`` for latent resampling
+quantities.
 
 Notation
 --------
@@ -36,6 +38,20 @@ with the endpoint conventions :math:`\lambda = 0 \to S_{w,k}` and
 The ``*_ci`` functions implement the approximate posterior
 credible intervals for the corresponding latent i.i.d. quantities under a
 Beta-Bernoulli model.
+
+Available API
+-------------
+- ``geom_at_k`` and ``geom_at_k_ci`` for the unanimous-endpoint operating point.
+- ``geo_spectrum_at_k`` and ``geo_spectrum_at_k_ci`` for
+  :math:`\mathrm{GeoSpectrum}_{\lambda,w}@k`.
+- ``geo_spectrum_star_at_k`` and ``geo_spectrum_star_at_k_ci`` for the default
+  upper-half operating point.
+- ``threshold_spectrum_at_k`` and ``threshold_spectrum_at_k_ci`` for
+  :math:`S_{w,k}`.
+- weight helpers and related geometric blends:
+  ``unanimous_spectrum_weights``, ``mg_spectrum_weights``,
+  ``geometric_pass_favoring_at_k``, ``geometric_unanimous_favoring_at_k``,
+  and ``sqrt_pu_over_p_at_k``.
 """
 
 import math
@@ -236,7 +252,39 @@ def threshold_spectrum_at_k(
 
 
 def geom_at_k(R: np.ndarray, k: int) -> float:
-    r"""``Geom@k``: :math:`\sqrt{\mathrm{Pass}@k(R)\,\mathrm{Unanimous}@k(R)}`."""
+    r"""
+    Performance evaluation using ``Geom@k``.
+
+    ``Geom@k`` is the geometric mean of dataset-level Pass@k and
+    Unanimous@k (equivalently Pass^k). It rewards both coverage
+    and stability: models score well only when they both solve the prompt
+    at least once and do so consistently across the selected traces.
+
+    Args:
+        R: :math:`M \times N` binary matrix with entries in :math:`\{0,1\}`.
+           :math:`R_{\alpha i} = 1` if trial :math:`i` for question
+           :math:`\alpha` passed, 0 otherwise.
+        k: Sampling budget with :math:`1 \le k \le N`.
+
+    Returns:
+        float: The dataset-level ``Geom@k`` score.
+
+    Formula:
+        .. math::
+
+            \mathrm{Geom@}k(R)
+            = \sqrt{
+                \mathrm{Pass}@k(R)\,
+                \mathrm{Unanimous}@k(R)
+            }
+
+    Examples:
+        >>> import numpy as np
+        >>> R = np.array([[0, 1, 1, 0, 1],
+        ...               [1, 1, 0, 1, 1]])
+        >>> round(geom_at_k(R, 2), 6)
+        0.653835
+    """
     pass_score, unanimous_score = _pass_and_unanimous_scores(R, k)
     return _geometric_mean(pass_score, unanimous_score)
 
@@ -248,7 +296,8 @@ def geo_spectrum_at_k(
     weights: np.ndarray | list[float] | tuple[float, ...] | None = None,
     lambda_: float | None = None,
 ) -> float:
-    r""":math:`\mathrm{GeoSpectrum}_{\lambda,w}@k` on the observed finite bank.
+    r"""
+    :math:`\mathrm{GeoSpectrum}_{\lambda,w}@k` on the observed finite bank.
 
     By default ``weights=None`` selects the upper-half ``mG`` weights,
     so the two-argument call ``geo_spectrum_at_k(R, k)`` remains the special
@@ -259,16 +308,33 @@ def geo_spectrum_at_k(
         \mathrm{GeoSpectrum}^*@k(R)
         = \sqrt{\mathrm{Pass}@k(R)\,\mathrm{mG\text{-}Pass}@k(R)}.
 
+    This function also accepts the keyword alias ``lambda_=...`` for callers
+    that prefer naming the coupling parameter after the mathematical symbol.
+
     Args:
         R: :math:`M \times N` binary matrix with entries in :math:`\{0,1\}`.
         k: Sampling budget with :math:`1 \le k \le N`.
         lam: The coupling parameter :math:`\lambda` in :math:`[0,1]`.
         weights: Spectrum weights :math:`w`. If omitted, uses
             ``mg_spectrum_weights(k)``.
-        lambda_: Optional alias for ``lam``.
 
     Returns:
         float: :math:`\mathrm{GeoSpectrum}_{\lambda,w}@k(R)`.
+
+    Formula:
+        .. math::
+
+            \mathrm{GeoSpectrum}_{\lambda,w}@k(R)
+            = \mathrm{Pass}@k(R)^\lambda \, S_{w,k}(R)^{1-\lambda}
+
+    Examples:
+        >>> import numpy as np
+        >>> R = np.array([[0, 1, 1, 0, 1],
+        ...               [1, 1, 0, 1, 1]])
+        >>> round(geo_spectrum_at_k(R, 3), 6)
+        0.408248
+        >>> round(geo_spectrum_at_k(R, 3, lam=1.0), 6)
+        1.0
     """
     lam = _resolve_lambda(lam, lambda_)
     pass_score = _pass_at_k(R, k)
@@ -285,7 +351,19 @@ def geo_spectrum_at_k(
 
 
 def geometric_pass_favoring_at_k(R: np.ndarray, k: int) -> float:
-    r"""Pass-favoring geometric blend of :math:`\mathrm{Pass}@k` and :math:`\mathrm{Unanimous}@k`.
+    r"""
+    Pass-favoring geometric blend of :math:`\mathrm{Pass}@k` and
+    :math:`\mathrm{Unanimous}@k`.
+
+    This operating point weights coverage more heavily than unanimity while
+    still penalizing unstable prompt behavior.
+
+    Args:
+        R: :math:`M \times N` binary matrix with entries in :math:`\{0,1\}`.
+        k: Sampling budget with :math:`1 \le k \le N`.
+
+    Returns:
+        float: The pass-favoring geometric blend.
 
     .. math::
 
@@ -297,7 +375,18 @@ def geometric_pass_favoring_at_k(R: np.ndarray, k: int) -> float:
 
 
 def geometric_unanimous_favoring_at_k(R: np.ndarray, k: int) -> float:
-    r"""Unanimous-favoring geometric blend of :math:`\mathrm{Pass}@k` and :math:`\mathrm{Unanimous}@k`.
+    r"""
+    Unanimous-favoring geometric blend of :math:`\mathrm{Pass}@k` and
+    :math:`\mathrm{Unanimous}@k`.
+
+    This operating point weights stability more heavily than coverage.
+
+    Args:
+        R: :math:`M \times N` binary matrix with entries in :math:`\{0,1\}`.
+        k: Sampling budget with :math:`1 \le k \le N`.
+
+    Returns:
+        float: The unanimous-favoring geometric blend.
 
     .. math::
 
@@ -309,7 +398,21 @@ def geometric_unanimous_favoring_at_k(R: np.ndarray, k: int) -> float:
 
 
 def sqrt_pu_over_p_at_k(R: np.ndarray, k: int) -> float:
-    r"""Dataset-level stability factor for :math:`\mathrm{Pass}@k` vs. :math:`\mathrm{Unanimous}@k`.
+    r"""
+    Dataset-level stability factor for :math:`\mathrm{Pass}@k` versus
+    :math:`\mathrm{Unanimous}@k`.
+
+    This ratio isolates how far unanimity lags behind pass-rate performance.
+    Values near 1 indicate that prompts solved at least once are also solved
+    consistently; values near 0 indicate high drift across traces.
+
+    Args:
+        R: :math:`M \times N` binary matrix with entries in :math:`\{0,1\}`.
+        k: Sampling budget with :math:`1 \le k \le N`.
+
+    Returns:
+        float: :math:`0` when :math:`\mathrm{Pass}@k(R)=0`, otherwise the
+        stability factor below.
 
     .. math::
 
@@ -443,7 +546,49 @@ def threshold_spectrum_at_k_ci(
     alpha0: float = 1.0,
     beta0: float = 1.0,
 ) -> tuple[float, float, float, float]:
-    r"""Approximate posterior summary for the latent spectrum :math:`S_{w,k}(p)`."""
+    r"""
+    Approximate posterior summary for the latent spectrum :math:`S_{w,k}(p)`.
+
+    Args:
+        R: :math:`M \times N` binary matrix with entries in :math:`\{0,1\}`.
+        k: Latent resampling budget. Once the posterior is defined, any integer
+           :math:`k \ge 1` is allowed.
+        weights: Non-negative length-:math:`k` weights with
+            :math:`\sum_r w_r \le 1`.
+        confidence: credibility level of the interval (default 0.95).
+        bounds: ``(lo, hi)`` clipping bounds for the interval
+                (default ``(0, 1)``).
+        alpha0: Beta prior parameter :math:`\alpha_0` (default 1).
+        beta0: Beta prior parameter :math:`\beta_0` (default 1).
+
+    Returns:
+        tuple[float, float, float, float]:
+            :math:`(\mu,\; \sigma,\; \text{lo},\; \text{hi})`
+
+    Notes:
+        Unlike :func:`threshold_spectrum_at_k`, the posterior target is defined
+        for latent i.i.d. resampling and therefore does not require
+        :math:`k \le N`.
+
+    Formula:
+        Let :math:`A_j = \sum_{r \le j} w_r`. The per-question latent target is
+
+        .. math::
+
+            g(p) = \sum_{j=1}^{k} A_j \binom{k}{j} p^j (1-p)^{k-j}.
+
+        Dataset-level aggregation uses
+
+        .. math::
+
+            \mu = \frac{1}{M} \sum_{\alpha=1}^{M} \mathbb{E}[g(p_\alpha)]
+
+        .. math::
+
+            \sigma = \frac{1}{M} \sqrt{
+                \sum_{\alpha=1}^{M} \mathrm{Var}[g(p_\alpha)]
+            }.
+    """
     w = _validate_spectrum_weights(weights, k)
     _, _, mu_spec, var_spec, _ = _pass_and_spectrum_posterior_moments(
         R,
@@ -467,12 +612,45 @@ def geom_at_k_ci(
     alpha0: float = 1.0,
     beta0: float = 1.0,
 ) -> tuple[float, float, float, float]:
-    r"""Approximate posterior summary for latent ``Geom@k``.
+    r"""
+    Approximate posterior summary for latent ``Geom@k``.
 
     This matches Section 3.3 and Appendix C.2: the posterior mean
     is approximated by :math:`\sqrt{\mu_P \mu_U}` and the posterior variance is
     obtained by first-order delta propagation through
     :math:`g(x, y) = \sqrt{x y}`.
+
+    Args:
+        R: :math:`M \times N` binary matrix with entries in :math:`\{0,1\}`.
+        k: Latent resampling budget. Once the posterior is defined, any integer
+           :math:`k \ge 1` is allowed.
+        confidence: credibility level of the interval (default 0.95).
+        bounds: ``(lo, hi)`` clipping bounds for the interval
+                (default ``(0, 1)``).
+        alpha0: Beta prior parameter :math:`\alpha_0` (default 1).
+        beta0: Beta prior parameter :math:`\beta_0` (default 1).
+
+    Returns:
+        tuple[float, float, float, float]:
+            :math:`(\mu,\; \sigma,\; \text{lo},\; \text{hi})`
+
+    Formula:
+        Let :math:`\mu_P` and :math:`\mu_U` denote the posterior means of the
+        latent Pass@k and Unanimous@k quantities. Then
+
+        .. math::
+
+            \mu \approx \sqrt{\mu_P \mu_U}
+
+        and :math:`\sigma` is computed by first-order delta propagation.
+
+    Examples:
+        >>> import numpy as np
+        >>> R = np.array([[0, 1, 1, 0, 1],
+        ...               [1, 1, 0, 1, 1]])
+        >>> mu, sigma, lo, hi = geom_at_k_ci(R, 2)
+        >>> round(mu, 6), round(sigma, 6), round(lo, 4), round(hi, 4)
+        (0.612112, 0.132755, 0.3519, 0.8723)
     """
     mu, sigma = _geo_spectrum_at_k_bayes(
         R,
@@ -499,10 +677,45 @@ def geo_spectrum_at_k_ci(
     alpha0: float = 1.0,
     beta0: float = 1.0,
 ) -> tuple[float, float, float, float]:
-    r"""Approximate posterior summary for latent :math:`\mathrm{GeoSpectrum}_{\lambda,w}@k`.
+    r"""
+    Approximate posterior summary for latent
+    :math:`\mathrm{GeoSpectrum}_{\lambda,w}@k`.
 
     As in :func:`geo_spectrum_at_k`, omitting ``weights`` selects the
     ``GeoSpectrum*@k`` operating point.
+
+    This function also accepts the keyword alias ``lambda_=...`` for callers
+    that prefer naming the coupling parameter after the mathematical symbol.
+
+    Args:
+        R: :math:`M \times N` binary matrix with entries in :math:`\{0,1\}`.
+        k: Latent resampling budget. Once the posterior is defined, any integer
+           :math:`k \ge 1` is allowed.
+        lam: The coupling parameter :math:`\lambda` in :math:`[0,1]`.
+        weights: Spectrum weights :math:`w`. If omitted, uses
+            ``mg_spectrum_weights(k)`` unless :math:`\lambda = 1`, in which
+            case the spectrum term is irrelevant.
+        confidence: credibility level of the interval (default 0.95).
+        bounds: ``(lo, hi)`` clipping bounds for the interval
+                (default ``(0, 1)``).
+        alpha0: Beta prior parameter :math:`\alpha_0` (default 1).
+        beta0: Beta prior parameter :math:`\beta_0` (default 1).
+
+    Returns:
+        tuple[float, float, float, float]:
+            :math:`(\mu,\; \sigma,\; \text{lo},\; \text{hi})`
+
+    Formula:
+        Let :math:`x` denote latent Pass@k and :math:`y` denote the latent
+        spectrum :math:`S_{w,k}`. The posterior mean is approximated by
+
+        .. math::
+
+            \mu \approx x^\lambda y^{1-\lambda}
+
+        evaluated at the posterior means of :math:`x` and :math:`y`, and
+        :math:`\sigma` is obtained by first-order delta propagation through
+        :math:`g(x, y) = x^\lambda y^{1-\lambda}`.
     """
     lam = _resolve_lambda(lam, lambda_)
     w = None
@@ -531,7 +744,19 @@ def geo_spectrum_at_k_ci(
 
 
 def geo_spectrum_star_at_k(R: np.ndarray, k: int) -> float:
-    """Explicit alias for the default ``GeoSpectrum*@k`` operating point."""
+    r"""
+    Explicit alias for the default ``GeoSpectrum*@k`` operating point.
+
+    Equivalent to calling :func:`geo_spectrum_at_k` with the default
+    upper-half ``mG`` spectrum weights.
+
+    Args:
+        R: :math:`M \times N` binary matrix with entries in :math:`\{0,1\}`.
+        k: Sampling budget with :math:`1 \le k \le N`.
+
+    Returns:
+        float: The ``GeoSpectrum*@k`` score.
+    """
     return geo_spectrum_at_k(R, k)
 
 
@@ -543,7 +768,26 @@ def geo_spectrum_star_at_k_ci(
     alpha0: float = 1.0,
     beta0: float = 1.0,
 ) -> tuple[float, float, float, float]:
-    """Approximate posterior summary for latent ``GeoSpectrum*@k``."""
+    r"""
+    Approximate posterior summary for latent ``GeoSpectrum*@k``.
+
+    Equivalent to :func:`geo_spectrum_at_k_ci` with the default upper-half
+    ``mG`` spectrum weights.
+
+    Args:
+        R: :math:`M \times N` binary matrix with entries in :math:`\{0,1\}`.
+        k: Latent resampling budget. Once the posterior is defined, any integer
+           :math:`k \ge 1` is allowed.
+        confidence: credibility level of the interval (default 0.95).
+        bounds: ``(lo, hi)`` clipping bounds for the interval
+                (default ``(0, 1)``).
+        alpha0: Beta prior parameter :math:`\alpha_0` (default 1).
+        beta0: Beta prior parameter :math:`\beta_0` (default 1).
+
+    Returns:
+        tuple[float, float, float, float]:
+            :math:`(\mu,\; \sigma,\; \text{lo},\; \text{hi})`
+    """
     return geo_spectrum_at_k_ci(
         R,
         k,
