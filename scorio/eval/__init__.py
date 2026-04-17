@@ -69,6 +69,9 @@ from .maj import maj_at_k, maj_at_k_ci
 from .max_reward import max_at_k, max_at_k_ci
 from .pass_at_k import pass_at_k, pass_at_k_ci, pass_hat_k, pass_hat_k_ci
 
+unanimous_at_k = pass_hat_k
+unanimous_at_k_ci = pass_hat_k_ci
+
 __all__ = [
     # Bayes@N
     "bayes",
@@ -82,6 +85,8 @@ __all__ = [
     # G-Pass-family point metrics
     "pass_hat_k",
     "pass_hat_k_ci",
+    "unanimous_at_k",
+    "unanimous_at_k_ci",
     "g_pass_at_k",
     "g_pass_at_k_ci",
     "g_pass_at_k_tau",

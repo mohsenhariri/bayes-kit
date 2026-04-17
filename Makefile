@@ -47,7 +47,7 @@ test-rank-py-slow:
 	pytest tests/rank -m slow
 
 pkg-check: build
-	python -m pip install --upgrade twine
+	uv pip install --upgrade twine
 	twine check dist/*
 
 pkg-publish-test: pkg-check
