@@ -30,12 +30,13 @@ Available Families
 - Majority family: ``maj_at_k`` and ``maj_at_k_ci``.
 - Generalized pass family: ``g_pass_at_k``, ``g_pass_at_k_tau``,
   ``mg_pass_at_k``, and their ``*_ci`` variants.
-- Geometric family: ``geom_at_k``/``geom_at_k_ci``,
+- Geometric family: ``geom_at_k``/``geom_ds_at_k``/``geom_at_k_ci``,
   ``geo_spectrum_at_k``/``geo_spectrum_at_k_ci``,
   ``threshold_spectrum_at_k``/``threshold_spectrum_at_k_ci``,
-  ``geo_spectrum_star_at_k``/``geo_spectrum_star_at_k_ci``,
-  spectrum-weight helpers, ``geometric_pass_favoring_at_k``,
-  ``geometric_unanimous_favoring_at_k``, and ``sqrt_pu_over_p_at_k``.
+  ``geo_spectrum_star_at_k``/``geo_spectrum_star_at_k_ci``, and
+  spectrum-weight helpers. ``geom_at_k`` is the questionwise geometric blend;
+  ``geom_ds_at_k`` and ``geom_at_k_ci`` use the dataset-level Pass/Unanimous
+  blend with configurable ``pass_power`` / ``unanimous_power`` arguments.
 - Max-reward family: ``max_at_k`` and ``max_at_k_ci``.
 """
 
@@ -49,10 +50,8 @@ from .geom import (
     geo_spectrum_star_at_k_ci,
     geom_at_k,
     geom_at_k_ci,
-    geometric_pass_favoring_at_k,
-    geometric_unanimous_favoring_at_k,
+    geom_ds_at_k,
     mg_spectrum_weights,
-    sqrt_pu_over_p_at_k,
     threshold_spectrum_at_k,
     threshold_spectrum_at_k_ci,
     unanimous_spectrum_weights,
@@ -108,12 +107,10 @@ __all__ = [
     "unanimous_spectrum_weights",
     "mg_spectrum_weights",
     "geom_at_k",
+    "geom_ds_at_k",
     "geom_at_k_ci",
     "geo_spectrum_at_k",
     "geo_spectrum_at_k_ci",
     "geo_spectrum_star_at_k",
     "geo_spectrum_star_at_k_ci",
-    "geometric_pass_favoring_at_k",
-    "geometric_unanimous_favoring_at_k",
-    "sqrt_pu_over_p_at_k",
 ]
