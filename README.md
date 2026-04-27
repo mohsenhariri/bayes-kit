@@ -1,13 +1,32 @@
-# Scorio
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/scorio-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/scorio.svg">
+    <img src="assets/scorio.svg" alt="Scorio" width="240">
+  </picture>
+</h1>
 
-[![arXiv (Bayes Evaluation)](https://img.shields.io/badge/arXiv-2510.04265-b31b1b.svg)](https://arxiv.org/abs/2510.04265)
-[![arXiv (Bayes Ranking)](https://img.shields.io/badge/arXiv-2603.10960-b31b1b.svg)](https://arxiv.org/abs/2603.10960)
-[![ICLR 2026](https://img.shields.io/badge/ICLR-2026-blue.svg)](https://iclr.cc/virtual/2026/poster/10009669)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](#license)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Julia 1.6+](https://img.shields.io/badge/julia-1.6+-9558B2.svg)](https://julialang.org/downloads/)
-[![Python Docs](https://readthedocs.org/projects/scorio/badge/?version=latest)](https://scorio.readthedocs.io/en/latest/)
-[![Julia Docs](https://img.shields.io/badge/docs-Julia-9558B2.svg)](https://mohsenhariri.github.io/scorio/julia/)
+<p align="center">
+  <a href="https://arxiv.org/abs/2510.04265"><img alt="arXiv: Bayes Evaluation" src="https://img.shields.io/badge/arXiv-2510.04265-b31b1b.svg"></a>
+  <a href="https://arxiv.org/abs/2603.10960"><img alt="arXiv: Bayes Ranking" src="https://img.shields.io/badge/arXiv-2603.10960-b31b1b.svg"></a>
+  <a href="https://iclr.cc/virtual/2026/poster/10009669"><img alt="ICLR 2026" src="https://img.shields.io/badge/ICLR-2026-blue.svg"></a>
+  <a href="#license"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg"></a>
+  <a href="https://www.python.org/downloads/"><img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10+-blue.svg"></a>
+  <a href="https://julialang.org/downloads/"><img alt="Julia 1.6+" src="https://img.shields.io/badge/julia-1.6+-9558B2.svg"></a>
+  <a href="https://scorio.readthedocs.io/en/latest/"><img alt="Python Docs" src="https://readthedocs.org/projects/scorio/badge/?version=latest"></a>
+  <a href="https://mohsenhariri.github.io/scorio/julia/"><img alt="Julia Docs" src="https://img.shields.io/badge/docs-Julia-9558B2.svg"></a>
+</p>
+
+---
+
+## Documentation
+
+[mohsenhariri.github.io/scorio](https://mohsenhariri.github.io/scorio/)
+
+| APIs | Documentation | Status |
+|----------|--------------|--------|
+| **Python** | [scorio.readthedocs.io](https://scorio.readthedocs.io/en/latest/) | [![ReadTheDocs](https://readthedocs.org/projects/scorio/badge/?version=latest)](https://scorio.readthedocs.io/en/latest/) |
+| **Julia** | [mohsenhariri.github.io/scorio/julia](https://mohsenhariri.github.io/scorio/julia/) | [![GitHub Pages](https://img.shields.io/badge/docs-stable-blue.svg)](https://mohsenhariri.github.io/scorio/julia/) |
 
 ---
 
@@ -166,18 +185,6 @@ Bayesian performance evaluation with uncertainty quantification using the Bayes@
 
 ---
 
-## Documentation
-
-[mohsenhariri.github.io/scorio](https://mohsenhariri.github.io/scorio/)
-
-| APIs | Documentation | Status |
-|----------|--------------|--------|
-| **Python** | [scorio.readthedocs.io](https://scorio.readthedocs.io/en/latest/) | [![ReadTheDocs](https://readthedocs.org/projects/scorio/badge/?version=latest)](https://scorio.readthedocs.io/en/latest/) |
-| **Julia** | [mohsenhariri.github.io/scorio/julia](https://mohsenhariri.github.io/scorio/julia/) | [![GitHub Pages](https://img.shields.io/badge/docs-stable-blue.svg)](https://mohsenhariri.github.io/scorio/julia/) |
-
-
----
-
 ## Citation
 
 If you use Scorio in your research, please cite the relevant papers:
@@ -190,7 +197,8 @@ If you use Scorio in your research, please cite the relevant papers:
   author={Hariri, Mohsen and Samandar, Amirhossein and Hinczewski, Michael and Chaudhary, Vipin},
   booktitle={The Fourteenth International Conference on Learning Representations},
   year={2026},
-  url={https://arxiv.org/abs/2510.04265}
+  url={https://openreview.net/forum?id=PTXi3Ef4sT},
+  doi={10.48550/arXiv.2510.04265}
 }
 ```
 
