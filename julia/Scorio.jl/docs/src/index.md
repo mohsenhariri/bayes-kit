@@ -1,5 +1,15 @@
 # Scorio.jl
 
+```@raw html
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/logo.svg">
+    <img src="assets/logo.svg" alt="Scorio" width="220">
+  </picture>
+</p>
+```
+
 Scorio.jl is a Bayesian evaluation and ranking toolkit for comparing LLMs.
 
 It provides:
@@ -47,9 +57,8 @@ println("Scores = ", scores)
 
 ## References
 
-- Hariri, M., Samandar, A., Hinczewski, M., & Chaudhary, V. (2026).
-  *Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation*.
-  https://arxiv.org/abs/2510.04265
+See [Citation](@ref) for BibTeX entries for the Bayesian evaluation framework
+and ranking methods.
 
 ## Module Reference
 

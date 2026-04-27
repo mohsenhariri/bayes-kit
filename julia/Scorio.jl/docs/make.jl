@@ -9,7 +9,8 @@ makedocs(
         prettyurls = get(ENV, "CI", nothing) == "true",
         canonical = "https://mohsenhariri.github.io/scorio/julia/",
         edit_link = "main",
-        assets = String[],
+        assets = ["assets/favicon.ico", "assets/scorio.css"],
+        sidebar_sitename = false,
     ),
     modules = [Scorio],
     pages = [
@@ -20,7 +21,8 @@ makedocs(
             "Ranking (Scorio.Rank)" => "api/rank.md",
             "Utilities (Scorio.Utils)" => "api/utils.md"
         ],
-        "Examples" => "examples.md"
+        "Examples" => "examples.md",
+        "Citation" => "citation.md"
     ],
     repo = Remotes.GitHub("mohsenhariri", "scorio"),
 )
