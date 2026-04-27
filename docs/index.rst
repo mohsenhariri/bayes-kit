@@ -1,6 +1,12 @@
 scorio Documentation
 ====================
 
+.. image:: _static/scorio.svg
+   :alt: Scorio
+   :align: center
+   :class: scorio-home-logo
+   :width: 220px
+
 **scorio** implements the Bayes@N framework for Bayesian performance evaluation with uncertainty quantification.
 
 .. image:: https://img.shields.io/badge/arXiv-2510.04265-b31b1b.svg

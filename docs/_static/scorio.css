@@ -1,0 +1,11 @@
+.rst-content img.scorio-home-logo {
+  display: block;
+  margin: 0 auto 1.25rem;
+}
+
+.rst-content img.venue-logo {
+  display: block;
+  margin: 0.25rem 0 0.75rem;
+  max-height: 48px;
+  width: auto;
+}
