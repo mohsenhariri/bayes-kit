@@ -30,13 +30,13 @@ Available Families
 - Majority family: ``maj_at_k`` and ``maj_at_k_ci``.
 - Generalized pass family: ``g_pass_at_k``, ``g_pass_at_k_tau``,
   ``mg_pass_at_k``, and their ``*_ci`` variants.
-- Geometric family: ``geom_at_k``/``geom_ds_at_k``/``geom_at_k_ci``,
+- Geometric family: ``geom_at_k``/``geom_at_k_ci``,
+  ``geom_ds_at_k``/``geom_ds_at_k_ci``,
   ``geo_spectrum_at_k``/``geo_spectrum_at_k_ci``,
   ``threshold_spectrum_at_k``/``threshold_spectrum_at_k_ci``,
-  ``geo_spectrum_star_at_k``/``geo_spectrum_star_at_k_ci``, and
-  spectrum-weight helpers. ``geom_at_k`` is the questionwise geometric blend;
-  ``geom_ds_at_k`` and ``geom_at_k_ci`` use the dataset-level Pass/Unanimous
-  blend with configurable ``pass_power`` / ``unanimous_power`` arguments.
+  and ``geo_spectrum_star_at_k``/``geo_spectrum_star_at_k_ci``.
+  ``geom_at_k`` is the questionwise geometric blend; ``geom_ds_at_k`` is the
+  dataset-level Pass/Unanimous blend.
 - Max-reward family: ``max_at_k`` and ``max_at_k_ci``.
 """
 
@@ -51,10 +51,9 @@ from .geom import (
     geom_at_k,
     geom_at_k_ci,
     geom_ds_at_k,
-    mg_spectrum_weights,
+    geom_ds_at_k_ci,
     threshold_spectrum_at_k,
     threshold_spectrum_at_k_ci,
-    unanimous_spectrum_weights,
 )
 from .gpass import (
     g_pass_at_k,
@@ -104,11 +103,10 @@ __all__ = [
     # Geometric / spectrum combinations
     "threshold_spectrum_at_k",
     "threshold_spectrum_at_k_ci",
-    "unanimous_spectrum_weights",
-    "mg_spectrum_weights",
     "geom_at_k",
     "geom_ds_at_k",
     "geom_at_k_ci",
+    "geom_ds_at_k_ci",
     "geo_spectrum_at_k",
     "geo_spectrum_at_k_ci",
     "geo_spectrum_star_at_k",

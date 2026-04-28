@@ -1,9 +1,10 @@
 r"""Geometric pass/spectrum metrics for binary outcomes.
 
-This module implements the finite-bank definitions from
-``Geom@k: Fast to Converge, Slow to Drift`` together with the approximate
-Beta-Bernoulli posterior summaries used by ``scorio`` for latent resampling
-quantities.
+This module implements finite-bank geometric and threshold-spectrum metrics
+together with approximate Beta-Bernoulli posterior summaries for latent
+resampling quantities. The paper ``Geom@k: Fast to Converge, Slow to Drift``
+defines a dataset-level endpoint blend; ``scorio`` also exposes a
+questionwise Geom@k variant as the primary ``geom_at_k`` metric.
 
 Notation
 --------
@@ -25,13 +26,16 @@ The GeoSpectrum family is then
 .. math::
 
     \mathrm{GeoSpectrum}_{\lambda,w}@k(R)
-    = \mathrm{Pass}@k(R)^\lambda \, S_{w,k}(R)^{1-\lambda},
+    = P_k(R)^\lambda \, S_{w,k}(R)^{1-\lambda},
 
-with the endpoint conventions :math:`\lambda = 0 \to S_{w,k}` and
-:math:`\lambda = 1 \to \mathrm{Pass}@k`. The named operating points are:
+where :math:`P_k(R)` is dataset-level Pass@k. The endpoint conventions are
+:math:`\lambda = 0 \to S_{w,k}` and :math:`\lambda = 1 \to P_k`. The named
+operating points are:
 
-- ``Geom@k``: :math:`\lambda = 1/2` with endpoint weights
-  :math:`w_r = 1\{r = k\}`.
+- ``geom_ds_at_k``: dataset-level endpoint blend with
+  :math:`\lambda = 1/2` and :math:`w_r = 1\{r = k\}`.
+- ``geom_at_k``: questionwise endpoint blend, computed before averaging
+  across questions.
 - ``GeoSpectrum*@k``: :math:`\lambda = 1/2` with upper-half weights
   :math:`w_r = (2/k)\,1\{r \ge \lceil k/2 \rceil + 1\}`.
 
@@ -41,17 +45,16 @@ Beta-Bernoulli model.
 
 Available API
 -------------
-- ``geom_at_k`` for the questionwise Pass/Unanimous geometric blend,
-  ``geom_ds_at_k`` for the dataset-level blend, and ``geom_at_k_ci`` for the
-  dataset-level latent credible interval.
+- ``geom_at_k`` and ``geom_at_k_ci`` for the questionwise Pass/Unanimous
+  geometric blend.
+- ``geom_ds_at_k`` and ``geom_ds_at_k_ci`` for the dataset-level
+  Pass/Unanimous blend.
 - ``geo_spectrum_at_k`` and ``geo_spectrum_at_k_ci`` for
   :math:`\mathrm{GeoSpectrum}_{\lambda,w}@k`.
 - ``geo_spectrum_star_at_k`` and ``geo_spectrum_star_at_k_ci`` for the default
   upper-half operating point.
 - ``threshold_spectrum_at_k`` and ``threshold_spectrum_at_k_ci`` for
   :math:`S_{w,k}`.
-- weight helpers and related geometric blends:
-  ``unanimous_spectrum_weights``, ``mg_spectrum_weights``.
 """
 
 import math
@@ -122,15 +125,15 @@ def _resolve_lambda(lam: float, lambda_: float | None = None) -> float:
     return float(lam)
 
 
-def unanimous_spectrum_weights(k: int) -> np.ndarray:
-    r"""Return the endpoint weights :math:`w_r = 1\{r = k\}` used by ``Geom@k``."""
+def _unanimous_spectrum_weights(k: int) -> np.ndarray:
+    r"""Return endpoint weights :math:`w_r = 1\{r = k\}`."""
     _validate_latent_k(k)
     weights = np.zeros(k, dtype=float)
     weights[-1] = 1.0
     return weights
 
 
-def mg_spectrum_weights(k: int) -> np.ndarray:
+def _mg_spectrum_weights(k: int) -> np.ndarray:
     r"""Return the upper-half weights used by ``GeoSpectrum*@k``.
 
     These weights are given by
@@ -197,7 +200,7 @@ def threshold_spectrum_at_k(
             S_{w,k}(R) = \sum_{r=1}^k w_r T_{r,k}(R).
 
         The implementation uses the equivalent event-score representation from
-        Appendix C.3.
+        Appendix C.4.
     """
     Rm = _as_2d_int_matrix(R)
     _validate_binary(Rm)
@@ -223,10 +226,15 @@ def geom_ds_at_k(
     r"""
     Dataset-level Pass/Unanimous geometric blend.
 
-    ``Geom@k`` defaults to the geometric mean of dataset-level Pass@k and
-    Unanimous@k (equivalently Pass^k). The same API also exposes nearby
-    operating points by letting callers adjust the exponents on the Pass@k
-    and Unanimous@k terms directly.
+    This is the endpoint GeoSpectrum operating point from the paper: it first
+    averages Pass@k and Unanimous@k across questions, then applies the
+    geometric blend. For the questionwise metric that blends before averaging,
+    use :func:`geom_at_k`.
+
+    The default operating point is the geometric mean of dataset-level
+    Pass@k and Unanimous@k (equivalently Pass^k). The same API also exposes
+    nearby operating points by letting callers adjust the exponents on the
+    Pass@k and Unanimous@k terms directly.
 
     Args:
         R: :math:`M \times N` binary matrix with entries in :math:`\{0,1\}`.
@@ -237,16 +245,16 @@ def geom_ds_at_k(
         unanimous_power: Exponent applied to ``Unanimous@k``.
 
     Returns:
-        float: The dataset-level ``Geom@k`` score.
+        float: The dataset-level endpoint score.
 
     Formula:
         .. math::
 
-            \mathrm{Geom@}k(R; a, b)
+            G_{\mathrm{ds},k}(R; a, b)
             = \mathrm{Pass}@k(R)^a\,
               \mathrm{Unanimous}@k(R)^b
 
-        with the default ``Geom@k`` operating point given by
+        with the default dataset-level endpoint operating point given by
         :math:`a = b = 1/2`.
 
     Examples:
@@ -268,27 +276,27 @@ def geom_at_k(
     R: np.ndarray, k: int, pass_power: float = 0.5, unanimous_power: float = 0.5
 ) -> float:
     r"""
-    Questionwise ``Geom@k`` averaged across questions.
+    Questionwise Geom@k averaged across questions.
 
-    Unlike :func:`geom_ds_at_k`, which blends dataset-level ``Pass@k`` and
-    dataset-level ``Unanimous@k``, this function first computes the
-    per-question quantities
-
-    .. math::
-
-        \mathrm{Pass@}k_\alpha = 1 - \frac{\binom{N - \nu_\alpha}{k}}{\binom{N}{k}}
+    This is ``scorio``'s primary Geom@k metric. Unlike
+    :func:`geom_ds_at_k`, which blends dataset-level Pass@k and dataset-level
+    Unanimous@k, this function first computes the per-question quantities
 
     .. math::
 
-        \mathrm{Unanimous@}k_\alpha = \frac{\binom{\nu_\alpha}{k}}{\binom{N}{k}}
+        P_{\alpha,k} =
+        1 - \frac{\binom{N - \nu_\alpha}{k}}{\binom{N}{k}}
+
+    .. math::
+
+        U_{\alpha,k} =
+        \frac{\binom{\nu_\alpha}{k}}{\binom{N}{k}}
 
     forms the geometric blend
 
     .. math::
 
-        \mathrm{Geom@}k_\alpha
-        = \mathrm{Pass@}k_\alpha^{a}\,
-          \mathrm{Unanimous@}k_\alpha^{b},
+        G_{\alpha,k} = P_{\alpha,k}^{a}\,U_{\alpha,k}^{b},
 
     and only then averages across questions.
 
@@ -300,6 +308,13 @@ def geom_at_k(
 
     Returns:
         float: The average questionwise ``Geom@k`` score.
+
+    Examples:
+        >>> import numpy as np
+        >>> R = np.array([[0, 1, 1, 0, 1],
+        ...               [1, 1, 0, 1, 1]])
+        >>> round(geom_at_k(R, 2), 6)
+        0.647106
     """
     Rm = _as_2d_int_matrix(R)
     _validate_binary(Rm)
@@ -349,8 +364,9 @@ def geo_spectrum_at_k(
         R: :math:`M \times N` binary matrix with entries in :math:`\{0,1\}`.
         k: Sampling budget with :math:`1 \le k \le N`.
         lam: The coupling parameter :math:`\lambda` in :math:`[0,1]`.
-        weights: Spectrum weights :math:`w`. If omitted, uses
-            ``mg_spectrum_weights(k)``.
+        weights: Spectrum weights :math:`w`. If omitted, uses the built-in
+            upper-half mG weights. Custom weights must be length-:math:`k`,
+            non-negative, finite, and satisfy :math:`\sum_r w_r \le 1`.
 
     Returns:
         float: :math:`\mathrm{GeoSpectrum}_{\lambda,w}@k(R)`.
@@ -376,7 +392,7 @@ def geo_spectrum_at_k(
         return pass_score
 
     w = (
-        mg_spectrum_weights(k)
+        _mg_spectrum_weights(k)
         if weights is None
         else _validate_spectrum_weights(weights, k)
     )
@@ -384,19 +400,18 @@ def geo_spectrum_at_k(
     return _weighted_geometric_mean(pass_score, spectrum_score, lam, 1.0 - lam)
 
 
-def _pass_and_spectrum_posterior_moments(
+def _pass_and_spectrum_row_posterior_moments(
     R: np.ndarray,
     k: int,
     weights: np.ndarray,
     alpha0: float = 1.0,
     beta0: float = 1.0,
-) -> tuple[float, float, float, float, float]:
-    r"""Posterior moments for latent :math:`\mathrm{Pass}@k` and latent spectrum :math:`S_{w,k}`.
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    r"""Per-question posterior moments for latent Pass@k and spectrum scores.
 
     Returns:
-        ``(mu_pass, var_pass, mu_spectrum, var_spectrum, cov_pass_spectrum)``
-        for the dataset-level latent quantities under independent row
-        posteriors.
+        ``(mean_pass, var_pass, mean_spectrum, var_spectrum, cov_pass_spectrum)``
+        arrays, one entry per question.
 
     Notes:
         Unlike the observed finite-bank metrics, these latent quantities are
@@ -455,6 +470,27 @@ def _pass_and_spectrum_posterior_moments(
         var_spec[i] = v_spec
         cov_ps[i] = cov
 
+    return mean_pass, var_pass, mean_spec, var_spec, cov_ps
+
+
+def _pass_and_spectrum_posterior_moments(
+    R: np.ndarray,
+    k: int,
+    weights: np.ndarray,
+    alpha0: float = 1.0,
+    beta0: float = 1.0,
+) -> tuple[float, float, float, float, float]:
+    r"""Dataset-level posterior moments for latent Pass@k and spectrum scores."""
+    mean_pass, var_pass, mean_spec, var_spec, cov_ps = (
+        _pass_and_spectrum_row_posterior_moments(
+            R,
+            k,
+            weights,
+            alpha0=alpha0,
+            beta0=beta0,
+        )
+    )
+    M = mean_pass.size
     mu_pass = float(np.mean(mean_pass))
     mu_spec = float(np.mean(mean_spec))
     var_pass_dataset = float(np.sum(var_pass) / (M**2))
@@ -508,7 +544,74 @@ def _geom_at_k_bayes(
     alpha0: float = 1.0,
     beta0: float = 1.0,
 ) -> tuple[float, float]:
-    r"""Approximate posterior mean/std for latent Pass/Unanimous blends."""
+    r"""Approximate posterior mean/std for latent questionwise Geom@k."""
+    (
+        mean_pass,
+        var_pass,
+        mean_unanimous,
+        var_unanimous,
+        cov_pu,
+    ) = _pass_and_spectrum_row_posterior_moments(
+        R,
+        k,
+        _unanimous_spectrum_weights(k),
+        alpha0=alpha0,
+        beta0=beta0,
+    )
+
+    means = np.empty_like(mean_pass, dtype=float)
+    variances = np.empty_like(mean_pass, dtype=float)
+    for i in range(mean_pass.size):
+        mu_pass = float(mean_pass[i])
+        mu_unanimous = float(mean_unanimous[i])
+        mu = _weighted_geometric_mean(
+            mu_pass,
+            mu_unanimous,
+            pass_power,
+            unanimous_power,
+        )
+        means[i] = mu
+        if mu == 0.0:
+            variances[i] = 0.0
+            continue
+
+        grad_pass = 0.0
+        if pass_power != 0.0:
+            grad_pass = (
+                pass_power
+                * (mu_pass ** (pass_power - 1.0))
+                * (mu_unanimous**unanimous_power)
+            )
+
+        grad_unanimous = 0.0
+        if unanimous_power != 0.0:
+            grad_unanimous = (
+                unanimous_power
+                * (mu_pass**pass_power)
+                * (mu_unanimous ** (unanimous_power - 1.0))
+            )
+
+        variances[i] = max(
+            0.0,
+            (grad_pass**2) * float(var_pass[i])
+            + (grad_unanimous**2) * float(var_unanimous[i])
+            + 2.0 * grad_pass * grad_unanimous * float(cov_pu[i]),
+        )
+
+    mu = float(np.mean(means))
+    sigma = float(math.sqrt(float(np.sum(variances))) / mean_pass.size)
+    return mu, sigma
+
+
+def _geom_ds_at_k_bayes(
+    R: np.ndarray,
+    k: int,
+    pass_power: float = 0.5,
+    unanimous_power: float = 0.5,
+    alpha0: float = 1.0,
+    beta0: float = 1.0,
+) -> tuple[float, float]:
+    r"""Approximate posterior mean/std for latent dataset-level Geom@k."""
     (
         mu_pass,
         var_pass,
@@ -518,7 +621,7 @@ def _geom_at_k_bayes(
     ) = _pass_and_spectrum_posterior_moments(
         R,
         k,
-        unanimous_spectrum_weights(k),
+        _unanimous_spectrum_weights(k),
         alpha0=alpha0,
         beta0=beta0,
     )
@@ -634,19 +737,89 @@ def geom_at_k_ci(
     beta0: float = 1.0,
 ) -> tuple[float, float, float, float]:
     r"""
-    Approximate posterior summary for latent Pass/Unanimous blends.
+    Approximate posterior summary for the questionwise Geom@k target.
 
-    This matches Section 3.3 and Appendix C.2 when
-    ``pass_power = unanimous_power = 0.5``. More generally, it applies the
-    same first-order delta method to the configurable dataset-level blend used
-    by :func:`geom_ds_at_k`.
+    This is the uncertainty counterpart of :func:`geom_at_k`: it applies a
+    first-order delta method to each question's latent Pass@k and
+    Unanimous@k quantities, then averages the resulting question-level
+    geometric blends.
 
     Args:
         R: :math:`M \times N` binary matrix with entries in :math:`\{0,1\}`.
         k: Latent resampling budget. Once the posterior is defined, any integer
            :math:`k \ge 1` is allowed.
-        pass_power: Exponent applied to latent ``Pass@k``.
-        unanimous_power: Exponent applied to latent ``Unanimous@k``.
+        pass_power: Exponent applied to each question's latent ``Pass@k``.
+        unanimous_power: Exponent applied to each question's latent
+            ``Unanimous@k``.
+        confidence: credibility level of the interval (default 0.95).
+        bounds: ``(lo, hi)`` clipping bounds for the interval
+                (default ``(0, 1)``).
+        alpha0: Beta prior parameter :math:`\alpha_0` (default 1).
+        beta0: Beta prior parameter :math:`\beta_0` (default 1).
+
+    Returns:
+        tuple[float, float, float, float]:
+            :math:`(\mu,\; \sigma,\; \text{lo},\; \text{hi})`
+
+    Formula:
+        Let :math:`\mu_{P,\alpha}` and :math:`\mu_{U,\alpha}` denote the
+        posterior means of question :math:`\alpha`'s latent Pass@k and
+        Unanimous@k quantities. Then
+
+        .. math::
+
+            \mu \approx \frac{1}{M}\sum_\alpha
+                \mu_{P,\alpha}^{a}\,\mu_{U,\alpha}^{b}
+
+        and :math:`\sigma` is computed by per-question first-order delta
+        propagation through :math:`g(x, y) = x^a y^b`.
+
+    Examples:
+        >>> import numpy as np
+        >>> R = np.array([[0, 1, 1, 0, 1],
+        ...               [1, 1, 0, 1, 1]])
+        >>> mu, sigma, lo, hi = geom_at_k_ci(R, 2)
+        >>> round(mu, 6), round(sigma, 6), round(lo, 4), round(hi, 4)
+        (0.610666, 0.133107, 0.3498, 0.8716)
+    """
+    mu, sigma = _geom_at_k_bayes(
+        R,
+        k,
+        pass_power=pass_power,
+        unanimous_power=unanimous_power,
+        alpha0=alpha0,
+        beta0=beta0,
+    )
+    lo, hi = normal_credible_interval(
+        mu, sigma, credibility=confidence, two_sided=True, bounds=bounds
+    )
+    return float(mu), float(sigma), float(lo), float(hi)
+
+
+def geom_ds_at_k_ci(
+    R: np.ndarray,
+    k: int,
+    pass_power: float = 0.5,
+    unanimous_power: float = 0.5,
+    confidence: float = 0.95,
+    bounds: tuple[float, float] = (0.0, 1.0),
+    alpha0: float = 1.0,
+    beta0: float = 1.0,
+) -> tuple[float, float, float, float]:
+    r"""
+    Approximate posterior summary for the dataset-level Geom@k target.
+
+    This is the uncertainty counterpart of :func:`geom_ds_at_k` and matches
+    the dataset-level latent quantity introduced in the paper when
+    ``pass_power = unanimous_power = 0.5``.
+
+    Args:
+        R: :math:`M \times N` binary matrix with entries in :math:`\{0,1\}`.
+        k: Latent resampling budget. Once the posterior is defined, any integer
+           :math:`k \ge 1` is allowed.
+        pass_power: Exponent applied to latent dataset-level ``Pass@k``.
+        unanimous_power: Exponent applied to latent dataset-level
+            ``Unanimous@k``.
         confidence: credibility level of the interval (default 0.95).
         bounds: ``(lo, hi)`` clipping bounds for the interval
                 (default ``(0, 1)``).
@@ -659,11 +832,11 @@ def geom_at_k_ci(
 
     Formula:
         Let :math:`\mu_P` and :math:`\mu_U` denote the posterior means of the
-        latent Pass@k and Unanimous@k quantities. Then
+        latent dataset-level Pass@k and Unanimous@k quantities. Then
 
         .. math::
 
-            \mu \approx \mu_P^{a}\,\mu_U^{b}
+            \mu \approx \mu_P^a\,\mu_U^b
 
         and :math:`\sigma` is computed by first-order delta propagation through
         :math:`g(x, y) = x^a y^b`.
@@ -672,11 +845,11 @@ def geom_at_k_ci(
         >>> import numpy as np
         >>> R = np.array([[0, 1, 1, 0, 1],
         ...               [1, 1, 0, 1, 1]])
-        >>> mu, sigma, lo, hi = geom_at_k_ci(R, 2)
+        >>> mu, sigma, lo, hi = geom_ds_at_k_ci(R, 2)
         >>> round(mu, 6), round(sigma, 6), round(lo, 4), round(hi, 4)
         (0.612112, 0.132755, 0.3519, 0.8723)
     """
-    mu, sigma = _geom_at_k_bayes(
+    mu, sigma = _geom_ds_at_k_bayes(
         R,
         k,
         pass_power=pass_power,
@@ -716,9 +889,11 @@ def geo_spectrum_at_k_ci(
         k: Latent resampling budget. Once the posterior is defined, any integer
            :math:`k \ge 1` is allowed.
         lam: The coupling parameter :math:`\lambda` in :math:`[0,1]`.
-        weights: Spectrum weights :math:`w`. If omitted, uses
-            ``mg_spectrum_weights(k)`` unless :math:`\lambda = 1`, in which
-            case the spectrum term is irrelevant.
+        weights: Spectrum weights :math:`w`. If omitted, uses the built-in
+            upper-half mG weights unless :math:`\lambda = 1`, in which case
+            the spectrum term is irrelevant. Custom weights must be
+            length-:math:`k`, non-negative, finite, and satisfy
+            :math:`\sum_r w_r \le 1`.
         confidence: credibility level of the interval (default 0.95).
         bounds: ``(lo, hi)`` clipping bounds for the interval
                 (default ``(0, 1)``).
@@ -745,13 +920,13 @@ def geo_spectrum_at_k_ci(
     w = None
     if lam != 1.0:
         w = (
-            mg_spectrum_weights(k)
+            _mg_spectrum_weights(k)
             if weights is None
             else _validate_spectrum_weights(weights, k)
         )
     else:
         # GeoSpectrum_{1,w}@k is exactly Pass@k, so ``w`` is irrelevant.
-        w = unanimous_spectrum_weights(k)
+        w = _unanimous_spectrum_weights(k)
 
     mu, sigma = _geo_spectrum_at_k_bayes(
         R,
@@ -781,7 +956,8 @@ def geo_spectrum_star_at_k(R: np.ndarray, k: int) -> float:
     Returns:
         float: The ``GeoSpectrum*@k`` score.
     """
-    return geo_spectrum_at_k(R, k)
+
+    return geo_spectrum_at_k(R, k, lam=0.5, weights=_mg_spectrum_weights(k))
 
 
 def geo_spectrum_star_at_k_ci(
@@ -824,14 +1000,13 @@ def geo_spectrum_star_at_k_ci(
 
 __all__ = [
     "geom_at_k",
-    "geom_ds_at_k",
-    "geo_spectrum_at_k",
-    "geo_spectrum_star_at_k",
     "geom_at_k_ci",
+    "geom_ds_at_k",
+    "geom_ds_at_k_ci",
+    "geo_spectrum_at_k",
     "geo_spectrum_at_k_ci",
+    "geo_spectrum_star_at_k",
     "geo_spectrum_star_at_k_ci",
     "threshold_spectrum_at_k",
     "threshold_spectrum_at_k_ci",
-    "unanimous_spectrum_weights",
-    "mg_spectrum_weights",
 ]
