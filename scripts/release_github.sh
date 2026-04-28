@@ -84,8 +84,14 @@ if [[ "${mode}" == "py" ]]; then
     exit 1
   fi
 
+  notes_file="$(mktemp)"
+  trap 'rm -f "${notes_file:-}"' EXIT
+  python scripts/release_notes.py "${version}" > "${notes_file}"
+
   echo "Creating GitHub release ${tag}..."
-  gh release create "${tag}" --generate-notes
+  gh release create "${tag}" --notes-file "${notes_file}"
+  rm -f "${notes_file}"
+  trap - EXIT
   echo "Release ${tag} published. This triggers .github/workflows/python-publish.yml."
 else
   if ! command -v gh >/dev/null 2>&1; then

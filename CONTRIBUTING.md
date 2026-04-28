@@ -101,9 +101,10 @@ make release-py
 make release-jl
 ```
 
-`make release-py` creates the Python GitHub release and triggers PyPI
-publishing. `make release-jl` dispatches Julia registration; after registration
-succeeds, TagBot creates the Julia tag and GitHub release.
+`make release-py` creates the Python GitHub release from the matching
+`docs/changelog.rst` version section and triggers PyPI publishing.
+`make release-jl` dispatches Julia registration; after registration succeeds,
+TagBot creates the Julia tag and GitHub release.
 
 ## Docstrings
 
