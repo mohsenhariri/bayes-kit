@@ -163,8 +163,8 @@ Full evaluation pipeline:
    # 1. Simple metrics
    print("\n1. Simple Metrics:")
    for i in range(M):
-       avg = eval.avg(R[i:i+1])
-       print(f"   Question {i+1} average: {avg:.3f}")
+       avg, avg_sigma = eval.avg(R[i:i+1])
+       print(f"   Question {i+1} average: {avg:.3f} ± {avg_sigma:.3f}")
 
    # 2. Bayesian evaluation
    print("\n2. Bayesian Evaluation:")

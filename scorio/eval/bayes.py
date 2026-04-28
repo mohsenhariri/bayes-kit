@@ -170,7 +170,36 @@ def bayes_ci(
     confidence: float = 0.95,
     bounds: tuple[float, float] | None = None,
 ) -> tuple[float, float, float, float]:
-    r""":math:`Bayes@N`'s :math:`\mu` and :math:`\sigma` plus a normal-approx credible interval (CrI)."""
+    r"""
+    Bayes@N posterior mean, uncertainty, and credible interval.
+
+    This is the interval-valued companion to :func:`bayes`. It computes
+    :math:`\mu` and :math:`\sigma` with the Bayes@N posterior moments, then
+    forms a central normal-approximation credible interval.
+
+    Args:
+        R: :math:`M \times N` int matrix with entries in
+           :math:`\{0,\ldots,C\}`.
+        w: optional length :math:`(C+1)` weight vector
+           :math:`(w_0,\ldots,w_C)`. If omitted, ``R`` must be binary and
+           ``w = [0, 1]`` is used.
+        R0: optional :math:`M \times D` int matrix supplying prior outcomes
+            for each row.
+        confidence: credibility level of the interval.
+        bounds: optional ``(lo, hi)`` clipping bounds for the interval.
+
+    Returns:
+        tuple[float, float, float, float]:
+            :math:`(\mu,\; \sigma,\; \text{lo},\; \text{hi})`.
+
+    Examples:
+        >>> import numpy as np
+        >>> R = np.array([[0, 1, 1, 0, 1],
+        ...               [1, 1, 0, 1, 1]])
+        >>> mu, sigma, lo, hi = bayes_ci(R, bounds=(0.0, 1.0))
+        >>> round(mu, 6), round(sigma, 6), round(lo, 4), round(hi, 4)
+        (0.642857, 0.118451, 0.4107, 0.875)
+    """
     mu, sigma = bayes(R, w, R0)
     lo, hi = normal_credible_interval(
         mu, sigma, credibility=confidence, two_sided=True, bounds=bounds

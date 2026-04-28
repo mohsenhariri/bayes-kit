@@ -12,8 +12,8 @@ estimator to ``scorio``'s categorical outcome representation via ``R`` plus a
 reward map ``w``.
 
 The companion ``*_ci`` functions are a ``scorio`` Bayesian extension. They use
-the same grouped-Dirichlet posterior model as :func:`scorio.eval.bayes` and are
-not part of the paper above.
+the same grouped-Dirichlet posterior model as :func:`~scorio.eval.bayes` and
+are not part of the paper above.
 
 Methods
 -------
@@ -285,9 +285,9 @@ def max_at_k_ci(
     Bayesian posterior summary for :func:`max_at_k`.
 
     The posterior uses the same Dirichlet-plus-one construction as
-    :func:`scorio.eval.bayes`. When ``k = 1``, ``Max@1`` reduces to the usual
+    :func:`~scorio.eval.bayes`. When ``k = 1``, ``Max@1`` reduces to the usual
     single-draw expected score, so this function agrees with
-    :func:`scorio.eval.bayes_ci`.
+    :func:`~scorio.eval.bayes_ci`.
 
     This uncertainty model is a ``scorio`` extension. Bagirov et al. (2025)
     define the finite-sample max@k point estimator, but do not derive these
@@ -297,7 +297,7 @@ def max_at_k_ci(
         R: :math:`M \times N` categorical outcome matrix with integer entries
            in :math:`\{0, \ldots, C\}`.
         k: Selection count. The posterior target is defined for any integer
-           ``k >= 1``; ``k = 1`` matches :func:`scorio.eval.bayes_ci`.
+           ``k >= 1``; ``k = 1`` matches :func:`~scorio.eval.bayes_ci`.
         w: Optional reward vector of shape ``(C+1,)``. If omitted, ``R`` must
            be binary and ``w = [0, 1]`` is used.
         R0: Optional :math:`M \times D` matrix of prior outcomes.

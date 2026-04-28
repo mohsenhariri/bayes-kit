@@ -98,9 +98,9 @@ mu2, sigma2 = eval.bayes(R, w)
 print(f"μ = {mu2:.6f}, σ = {sigma2:.6f}")
 # Expected: μ ≈ 0.5625, σ ≈ 0.091998
 
-# Simple average
-accuracy = eval.avg(R)
-print(f"Average: {accuracy:.6f}")
+# Weighted average
+accuracy, accuracy_sigma = eval.avg(R, w)
+print(f"Average = {accuracy:.6f}, σ = {accuracy_sigma:.6f}")
 ```
 
 ### Julia (Scorio.jl)
@@ -144,9 +144,9 @@ mu2, sigma2 = bayes(R, w)
 println("μ = $mu2, σ = $sigma2")
 # Expected: μ ≈ 0.5625, σ ≈ 0.091998
 
-# Simple average
-accuracy = avg(R)
-println("Average: $accuracy")
+# Weighted average
+accuracy, accuracy_sigma = avg(R, w)
+println("Average = $accuracy, σ = $accuracy_sigma")
 ```
 
 ---

@@ -76,6 +76,10 @@ autodoc_default_options = {
 # Hide class members from TOC (but still show them in the documentation)
 toc_object_entries_show_parents = "hide"
 
+# Show public API functions without implementation-module prefixes such as
+# ``scorio.eval.bayes.bayes_ci``.
+add_module_names = False
+
 # -- Intersphinx settings ----------------------------------------------------
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),

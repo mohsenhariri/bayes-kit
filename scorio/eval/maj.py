@@ -98,7 +98,7 @@ def maj_at_k_ci(
             :math:`(\mu,\; \sigma,\; \text{lo},\; \text{hi})`
 
     Formula:
-        This is exactly :func:`scorio.eval.g_pass_at_k_tau_ci` evaluated at
+        This is exactly :func:`~scorio.eval.g_pass_at_k_tau_ci` evaluated at
 
         .. math::
 

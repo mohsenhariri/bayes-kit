@@ -233,6 +233,18 @@ def _threshold_spectrum_reference(
     return float(np.mean(values))
 
 
+def _unanimous_spectrum_weights(k: int) -> np.ndarray:
+    weights = np.zeros(k, dtype=float)
+    weights[-1] = 1.0
+    return weights
+
+
+def _mg_spectrum_weights(k: int) -> np.ndarray:
+    weights = np.zeros(k, dtype=float)
+    weights[int(math.ceil(k / 2.0)) :] = 2.0 / k
+    return weights
+
+
 def test_bayes_multiclass_matches_closed_form_reference(
     multiclass_ref: tuple[np.ndarray, np.ndarray, np.ndarray],
 ) -> None:
@@ -497,28 +509,13 @@ def test_max_reward_requires_weights_for_non_binary(
         scorio_eval.max_at_k(R, 2)
 
 
-def test_spectrum_weight_generators_match_expected_values() -> None:
-    np.testing.assert_array_equal(
-        scorio_eval.unanimous_spectrum_weights(4),
-        np.array([0.0, 0.0, 0.0, 1.0], dtype=float),
-    )
-    np.testing.assert_array_equal(
-        scorio_eval.mg_spectrum_weights(1),
-        np.array([0.0], dtype=float),
-    )
-    np.testing.assert_array_equal(
-        scorio_eval.mg_spectrum_weights(4),
-        np.array([0.0, 0.0, 0.5, 0.5], dtype=float),
-    )
-
-
 def test_threshold_spectrum_matches_reference_and_special_cases(
     binary_ref: np.ndarray,
 ) -> None:
     k = 3
     custom_weights = np.array([0.2, 0.1, 0.4], dtype=float)
-    unanimous_weights = scorio_eval.unanimous_spectrum_weights(k)
-    mg_weights = scorio_eval.mg_spectrum_weights(k)
+    unanimous_weights = _unanimous_spectrum_weights(k)
+    mg_weights = _mg_spectrum_weights(k)
 
     assert scorio_eval.threshold_spectrum_at_k(
         binary_ref, k, custom_weights
@@ -584,14 +581,10 @@ def test_geometric_family_matches_closed_form_blends_and_power_controls(
 
     assert scorio_eval.geom_at_k(
         binary_ref, k, pass_power=0.75, unanimous_power=0.25
-    ) == pytest.approx(
-        float(np.mean((pass_vals**0.75) * (unanimous_vals**0.25)))
-    )
+    ) == pytest.approx(float(np.mean((pass_vals**0.75) * (unanimous_vals**0.25))))
     assert scorio_eval.geom_ds_at_k(
         binary_ref, k, pass_power=0.75, unanimous_power=0.25
-    ) == pytest.approx(
-        (pass_score**0.75) * (unanimous_score**0.25)
-    )
+    ) == pytest.approx((pass_score**0.75) * (unanimous_score**0.25))
     assert scorio_eval.geom_at_k(
         binary_ref, k, pass_power=0.25, unanimous_power=0.75
     ) == pytest.approx(float(np.mean((pass_vals**0.25) * (unanimous_vals**0.75))))
@@ -600,9 +593,7 @@ def test_geometric_family_matches_closed_form_blends_and_power_controls(
     ) == pytest.approx((pass_score**0.25) * (unanimous_score**0.75))
     assert scorio_eval.geom_ds_at_k(
         binary_ref, k, pass_power=-0.5, unanimous_power=0.5
-    ) == pytest.approx(
-        math.sqrt(unanimous_score / pass_score)
-    )
+    ) == pytest.approx(math.sqrt(unanimous_score / pass_score))
 
     zero_ref = np.zeros((3, 5), dtype=int)
     assert scorio_eval.geom_at_k(
@@ -621,8 +612,8 @@ def test_geometric_family_matches_closed_form_blends_and_power_controls(
 def test_geometric_ci_special_cases_and_power_controls(binary_ref: np.ndarray) -> None:
     k = 3
     custom_weights = np.array([0.2, 0.1, 0.4], dtype=float)
-    unanimous_weights = scorio_eval.unanimous_spectrum_weights(k)
-    mg_weights = scorio_eval.mg_spectrum_weights(k)
+    unanimous_weights = _unanimous_spectrum_weights(k)
+    mg_weights = _mg_spectrum_weights(k)
 
     np.testing.assert_allclose(
         scorio_eval.threshold_spectrum_at_k_ci(binary_ref, k, unanimous_weights),
@@ -645,13 +636,13 @@ def test_geometric_ci_special_cases_and_power_controls(binary_ref: np.ndarray) -
         scorio_eval.pass_at_k_ci(binary_ref, k),
     )
     np.testing.assert_allclose(
-        scorio_eval.geom_at_k_ci(binary_ref, k),
+        scorio_eval.geom_ds_at_k_ci(binary_ref, k),
         scorio_eval.geo_spectrum_at_k_ci(
             binary_ref, k, lam=0.5, weights=unanimous_weights
         ),
     )
     np.testing.assert_allclose(
-        scorio_eval.geom_at_k_ci(
+        scorio_eval.geom_ds_at_k_ci(
             binary_ref, k, pass_power=0.75, unanimous_power=0.25
         ),
         scorio_eval.geo_spectrum_at_k_ci(
@@ -664,13 +655,14 @@ def test_geometric_ci_special_cases_and_power_controls(binary_ref: np.ndarray) -
     )
 
 
-@pytest.mark.parametrize(
-    "fn",
-    [scorio_eval.unanimous_spectrum_weights, scorio_eval.mg_spectrum_weights],
-)
-def test_spectrum_weight_generators_require_positive_k(fn) -> None:
-    with pytest.raises(ValueError, match="k must be >= 1"):
-        fn(0)
+def test_questionwise_and_dataset_geom_ci_are_distinct_targets() -> None:
+    R = np.array([[1, 0, 0], [1, 1, 1]], dtype=int)
+    assert scorio_eval.geom_at_k(R, 2) == pytest.approx(0.5)
+    assert scorio_eval.geom_ds_at_k(R, 2) == pytest.approx(math.sqrt(5.0 / 12.0))
+
+    question_mu, *_ = scorio_eval.geom_at_k_ci(R, 2)
+    dataset_mu, *_ = scorio_eval.geom_ds_at_k_ci(R, 2)
+    assert question_mu != pytest.approx(dataset_mu)
 
 
 def test_spectrum_family_rejects_invalid_weights(binary_ref: np.ndarray) -> None:
@@ -750,9 +742,7 @@ def test_eval_apis_are_invariant_to_question_and_trial_permutations(
     assert scorio_eval.mg_pass_at_k(R, 3) == pytest.approx(
         scorio_eval.mg_pass_at_k(R_perm, 3)
     )
-    assert scorio_eval.auc_at_k(R, 3) == pytest.approx(
-        scorio_eval.auc_at_k(R_perm, 3)
-    )
+    assert scorio_eval.auc_at_k(R, 3) == pytest.approx(scorio_eval.auc_at_k(R_perm, 3))
     assert scorio_eval.maj_at_k(R, 3) == pytest.approx(scorio_eval.maj_at_k(R_perm, 3))
     assert scorio_eval.max_at_k(R, 3) == pytest.approx(scorio_eval.max_at_k(R_perm, 3))
 
@@ -819,10 +809,8 @@ def test_public_eval_api_exports_have_valid_smoke_calls(binary_ref: np.ndarray) 
         "g_pass_at_k_tau": lambda: scorio_eval.g_pass_at_k_tau(binary_ref, 2, tau=0.7),
         "mg_pass_at_k": lambda: scorio_eval.mg_pass_at_k(binary_ref, 2),
         "threshold_spectrum_at_k": lambda: scorio_eval.threshold_spectrum_at_k(
-            binary_ref, 2, scorio_eval.mg_spectrum_weights(2)
+            binary_ref, 2, np.array([0.0, 1.0], dtype=float)
         ),
-        "unanimous_spectrum_weights": lambda: scorio_eval.unanimous_spectrum_weights(2),
-        "mg_spectrum_weights": lambda: scorio_eval.mg_spectrum_weights(2),
         "geom_at_k": lambda: scorio_eval.geom_at_k(binary_ref, 2),
         "geom_ds_at_k": lambda: scorio_eval.geom_ds_at_k(binary_ref, 2),
         "geo_spectrum_at_k_ci": lambda: scorio_eval.geo_spectrum_at_k_ci(binary_ref, 2),
@@ -843,9 +831,10 @@ def test_public_eval_api_exports_have_valid_smoke_calls(binary_ref: np.ndarray) 
         "mg_pass_at_k_ci": lambda: scorio_eval.mg_pass_at_k_ci(binary_ref, 2),
         "max_at_k_ci": lambda: scorio_eval.max_at_k_ci(binary_ref, 2),
         "threshold_spectrum_at_k_ci": lambda: scorio_eval.threshold_spectrum_at_k_ci(
-            binary_ref, 2, scorio_eval.mg_spectrum_weights(2)
+            binary_ref, 2, np.array([0.0, 1.0], dtype=float)
         ),
         "geom_at_k_ci": lambda: scorio_eval.geom_at_k_ci(binary_ref, 2),
+        "geom_ds_at_k_ci": lambda: scorio_eval.geom_ds_at_k_ci(binary_ref, 2),
         "geo_spectrum_star_at_k_ci": lambda: scorio_eval.geo_spectrum_star_at_k_ci(
             binary_ref, 2
         ),
@@ -871,15 +860,6 @@ def test_public_eval_api_exports_have_valid_smoke_calls(binary_ref: np.ndarray) 
             assert np.isfinite(mu)
             assert np.isfinite(sigma)
             assert sigma >= 0.0
-            continue
-
-        if name in {"unanimous_spectrum_weights", "mg_spectrum_weights"}:
-            assert isinstance(out, np.ndarray)
-            assert out.ndim == 1
-            assert len(out) == 2
-            assert np.all(np.isfinite(out))
-            assert np.all(out >= 0.0)
-            assert float(np.sum(out)) <= 1.0 + 1e-12
             continue
 
         assert np.isfinite(out)

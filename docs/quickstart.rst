@@ -116,8 +116,8 @@ For basic accuracy:
    R = np.array([[0, 1, 1, 0, 1],
                  [1, 1, 0, 1, 1]])
 
-   avg = eval.avg(R)
-   print(f"Average: {avg:.4f}")
+   avg, avg_sigma = eval.avg(R)
+   print(f"Average: {avg:.4f} ± {avg_sigma:.4f}")
 
 Next Steps
 ----------

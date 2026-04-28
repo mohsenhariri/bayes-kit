@@ -179,7 +179,27 @@ def auc_at_k_ci(
     alpha0: float = 1.0,
     beta0: float = 1.0,
 ) -> tuple[float, float, float, float]:
-    r""":math:`AUC@K`'s :math:`\mu` and :math:`\sigma` plus a normal-approx credible interval (CrI)."""
+    r"""
+    Bayesian posterior summary for the latent AUC@K target.
+
+    The posterior model treats each question's success probability as a
+    latent Bernoulli parameter with a Beta prior. It propagates that
+    uncertainty through the AUC@K weighted sum of i.i.d. Pass@j targets. For
+    ``k = 1``, AUC@1 is Pass@1, so this function returns
+    :func:`pass_at_k_ci` with ``k = 1``.
+
+    Args:
+        R: :math:`M \times N` binary matrix with entries in :math:`\{0,1\}`.
+        k: Maximum sampling budget with ``1 <= k <= N``.
+        confidence: credibility level of the interval.
+        bounds: ``(lo, hi)`` clipping bounds for the interval.
+        alpha0: Beta prior parameter :math:`\alpha_0`.
+        beta0: Beta prior parameter :math:`\beta_0`.
+
+    Returns:
+        tuple[float, float, float, float]:
+            :math:`(\mu,\; \sigma,\; \text{lo},\; \text{hi})`.
+    """
     if k == 1:
         return pass_at_k_ci(
             R,

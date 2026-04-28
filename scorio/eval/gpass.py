@@ -38,8 +38,8 @@ def g_pass_at_k(R: np.ndarray, k: int) -> float:
     r"""
     Performance evaluation using G-Pass@k.
 
-    Equivalent to :func:`scorio.eval.pass_at_k.pass_hat_k`, included for
-    literature that uses the G-Pass@k naming convention for the
+    Equivalent to :func:`~scorio.eval.pass_hat_k`, included for literature
+    that uses the G-Pass@k naming convention for the
     :math:`\tau = 1` threshold.
 
     References:
@@ -358,7 +358,24 @@ def g_pass_at_k_ci(
     alpha0: float = 1.0,
     beta0: float = 1.0,
 ) -> tuple[float, float, float, float]:
-    r""":math:`G\text{-}Pass@k`'s :math:`\mu` and :math:`\sigma` plus a normal-approx credible interval (CrI)."""
+    r"""
+    Bayesian posterior summary for G-Pass@k.
+
+    G-Pass@k is the all-success threshold, so this is the same posterior
+    target as :func:`~scorio.eval.pass_hat_k_ci`.
+
+    Args:
+        R: :math:`M \times N` binary matrix with entries in :math:`\{0,1\}`.
+        k: Number of selected samples with ``1 <= k <= N``.
+        confidence: credibility level of the interval.
+        bounds: ``(lo, hi)`` clipping bounds for the interval.
+        alpha0: Beta prior parameter :math:`\alpha_0`.
+        beta0: Beta prior parameter :math:`\beta_0`.
+
+    Returns:
+        tuple[float, float, float, float]:
+            :math:`(\mu,\; \sigma,\; \text{lo},\; \text{hi})`.
+    """
     return pass_hat_k_ci(
         R, k, confidence=confidence, bounds=bounds, alpha0=alpha0, beta0=beta0
     )
@@ -373,7 +390,25 @@ def g_pass_at_k_tau_ci(
     alpha0: float = 1.0,
     beta0: float = 1.0,
 ) -> tuple[float, float, float, float]:
-    r""":math:`G\text{-}Pass@k`\ :sub:`\tau`'s :math:`\mu` and :math:`\sigma` plus a normal-approx credible interval (CrI)."""
+    r"""
+    Bayesian posterior summary for thresholded G-Pass@k.
+
+    The latent target is the probability that at least
+    :math:`\lceil \tau k \rceil` of ``k`` i.i.d. samples are correct.
+
+    Args:
+        R: :math:`M \times N` binary matrix with entries in :math:`\{0,1\}`.
+        k: Number of selected samples with ``1 <= k <= N``.
+        tau: Threshold parameter in ``[0, 1]``.
+        confidence: credibility level of the interval.
+        bounds: ``(lo, hi)`` clipping bounds for the interval.
+        alpha0: Beta prior parameter :math:`\alpha_0`.
+        beta0: Beta prior parameter :math:`\beta_0`.
+
+    Returns:
+        tuple[float, float, float, float]:
+            :math:`(\mu,\; \sigma,\; \text{lo},\; \text{hi})`.
+    """
     mu, sigma = _g_pass_at_k_tau_bayes(R, k, tau, alpha0=alpha0, beta0=beta0)
     lo, hi = normal_credible_interval(
         mu, sigma, credibility=confidence, two_sided=True, bounds=bounds
@@ -389,7 +424,25 @@ def mg_pass_at_k_ci(
     alpha0: float = 1.0,
     beta0: float = 1.0,
 ) -> tuple[float, float, float, float]:
-    r""":math:`mG\text{-}Pass@k`'s :math:`\mu` and :math:`\sigma` plus a normal-approx credible interval (CrI)."""
+    r"""
+    Bayesian posterior summary for mG-Pass@k.
+
+    The latent target averages thresholded G-Pass@k over thresholds from
+    ``0.5`` to ``1.0`` using the closed-form weighting in
+    :func:`~scorio.eval.mg_pass_at_k`.
+
+    Args:
+        R: :math:`M \times N` binary matrix with entries in :math:`\{0,1\}`.
+        k: Number of selected samples with ``1 <= k <= N``.
+        confidence: credibility level of the interval.
+        bounds: ``(lo, hi)`` clipping bounds for the interval.
+        alpha0: Beta prior parameter :math:`\alpha_0`.
+        beta0: Beta prior parameter :math:`\beta_0`.
+
+    Returns:
+        tuple[float, float, float, float]:
+            :math:`(\mu,\; \sigma,\; \text{lo},\; \text{hi})`.
+    """
     mu, sigma = _mg_pass_at_k_bayes(R, k, alpha0=alpha0, beta0=beta0)
     lo, hi = normal_credible_interval(
         mu, sigma, credibility=confidence, two_sided=True, bounds=bounds
