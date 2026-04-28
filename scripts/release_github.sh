@@ -48,6 +48,12 @@ if [[ -z "${version}" ]]; then
   exit 1
 fi
 
+git update-index -q --refresh
+if ! git diff-index --quiet HEAD --; then
+  echo "ERROR: tracked files have uncommitted changes; commit before releasing" >&2
+  exit 1
+fi
+
 if [[ "${mode}" == "py" ]]; then
   tag="python-v${version}"
   file_version="$(tr -d '[:space:]' < VERSION)"

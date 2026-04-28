@@ -5,7 +5,7 @@ using Scorio
 include("testdata.jl")
 
 @testset "Scorio.jl" begin
-    @test Scorio.VERSION == v"0.2.0"
+    @test Scorio.VERSION == v"0.2.2"
 
     @test isdefined(Scorio, :Eval)
     @test isdefined(Scorio, :Rank)

@@ -1,7 +1,7 @@
 """Scorio Julia package."""
 module Scorio
 
-const VERSION = v"0.2.0"
+const VERSION = v"0.2.2"
 
 include("eval.jl")
 include("rank.jl")
