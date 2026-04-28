@@ -69,6 +69,42 @@ mypy scorio/
 pytest
 ```
 
+## Release Process
+
+Use `VERSION` as the package-version source of truth, and keep
+`docs/changelog.rst` as the human-written release-notes source of truth.
+
+1. Update `VERSION` to the new version.
+2. Run `make sync-version`.
+3. Update `docs/changelog.rst` with the user-facing changes for the release.
+4. Run the relevant checks:
+
+```bash
+make format-check
+make test
+make pkg-check
+make jl-test
+```
+
+5. Commit the tracked release changes and push them:
+
+```bash
+git add -u
+git commit -m "Prepare vX.Y.Z release"
+git push origin main
+```
+
+6. Publish the package releases:
+
+```bash
+make release-py
+make release-jl
+```
+
+`make release-py` creates the Python GitHub release and triggers PyPI
+publishing. `make release-jl` dispatches Julia registration; after registration
+succeeds, TagBot creates the Julia tag and GitHub release.
+
 ## Docstrings
 
 - Use Google-style docstrings
