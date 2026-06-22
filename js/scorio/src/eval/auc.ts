@@ -9,7 +9,7 @@
  * References: Hu et al. (2026), arXiv:2601.08763.
  */
 
-import { betaRatio, comb } from "./internal/math.js";
+import { comb } from "./internal/math.js";
 import { normalCredibleInterval, type Bounds } from "./internal/ci.js";
 import {
   asMatrix,
@@ -115,25 +115,26 @@ function aucAtKBayes(
     const a = alpha[i]!;
     const b = beta[i]!;
 
-    // eq[j-1] = E[(1-p)^j]
-    const eq = new Array<number>(k);
-    for (let j = 1; j <= k; j++) {
-      eq[j - 1] = betaRatio(a, b, 0, j);
+    // r[s] = E[(1-p)^s] = Beta(a, b+s)/Beta(a, b). Using the recurrence
+    //   r[s] = r[s-1] * (b + s - 1) / (a + b + s - 1),   r[0] = 1,
+    // precomputes every moment in O(k) arithmetic with no gammaln calls.
+    const r = new Array<number>(2 * k + 1);
+    r[0] = 1.0;
+    for (let s = 1; s <= 2 * k; s++) {
+      r[s] = (r[s - 1]! * (b + s - 1)) / (a + b + s - 1);
     }
 
     let dotCoeffEq = 0;
     for (let j = 1; j <= k; j++) {
-      dotCoeffEq += coeff[j - 1]! * eq[j - 1]!;
+      dotCoeffEq += coeff[j - 1]! * r[j]!;
     }
     const m = 1.0 - dotCoeffEq;
 
-    let e2 = 1.0;
-    e2 -= 2.0 * dotCoeffEq;
+    let e2 = 1.0 - 2.0 * dotCoeffEq;
     for (let j = 1; j <= k; j++) {
       const cJ = coeff[j - 1]!;
       for (let l = 1; l <= k; l++) {
-        const cL = coeff[l - 1]!;
-        e2 += cJ * cL * betaRatio(a, b, 0, j + l);
+        e2 += cJ * coeff[l - 1]! * r[j + l]!;
       }
     }
 

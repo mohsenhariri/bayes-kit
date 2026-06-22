@@ -123,6 +123,59 @@ export function mgPassAtK(R: Matrix, k: number): number {
   return vals.reduce((s, v) => s + (v * 2.0) / k, 0) / M;
 }
 
+/**
+ * Posterior mean/std of `Σ_j coeff_j · 1{X >= ...}` for a hypergeometric-style
+ * weighted sum whose i.i.d. Beta-Binomial moments are
+ * `E[(success-budget) terms] = Beta(a+j, b+k-j)/Beta(a, b)`.
+ *
+ * The first and second moments need `Beta(a+x, b+k-x)/Beta(a,b)` (`tK`) and
+ * `Beta(a+x, b+2k-x)/Beta(a,b)` (`t2K`). Each array is built from a single
+ * `betaRatio` seed via the recurrence
+ *   `t[x] = t[x-1] * (a + x - 1) / (sumTo - x)`,
+ * eliminating the `O(k^2)` gammaln-bearing `betaRatio` calls in the moment sums.
+ */
+function iidWeightedMoments(
+  alpha: readonly number[],
+  beta: readonly number[],
+  M: number,
+  js: readonly number[],
+  coeff: readonly number[],
+  k: number,
+): [number, number] {
+  let meanSum = 0;
+  let varSum = 0;
+  for (let i = 0; i < M; i++) {
+    const a = alpha[i]!;
+    const b = beta[i]!;
+
+    const tK = new Array<number>(k + 1);
+    tK[0] = betaRatio(a, b, 0, k);
+    for (let x = 1; x <= k; x++) tK[x] = (tK[x - 1]! * (a + x - 1)) / (b + k - x);
+
+    const t2K = new Array<number>(2 * k + 1);
+    t2K[0] = betaRatio(a, b, 0, 2 * k);
+    for (let x = 1; x <= 2 * k; x++) {
+      t2K[x] = (t2K[x - 1]! * (a + x - 1)) / (b + 2 * k - x);
+    }
+
+    let m = 0;
+    for (let idx = 0; idx < js.length; idx++) m += coeff[idx]! * tK[js[idx]!]!;
+
+    let e2 = 0;
+    for (let idxJ = 0; idxJ < js.length; idxJ++) {
+      const cJ = coeff[idxJ]!;
+      const j = js[idxJ]!;
+      for (let idxL = 0; idxL < js.length; idxL++) {
+        e2 += cJ * coeff[idxL]! * t2K[j + js[idxL]!]!;
+      }
+    }
+
+    meanSum += m;
+    varSum += Math.max(0, e2 - m * m);
+  }
+  return [meanSum / M, Math.sqrt(varSum) / M];
+}
+
 /** Posterior mean/std for the i.i.d. G-Pass@k_τ quantity. */
 function gPassAtKTauBayes(
   R: Matrix,
@@ -149,34 +202,7 @@ function gPassAtKTauBayes(
   for (let j = j0; j <= k; j++) js.push(j);
   const coeff = js.map((j) => comb(k, j));
 
-  let meanSum = 0;
-  let varSum = 0;
-  for (let i = 0; i < M; i++) {
-    const a = alpha[i]!;
-    const b = beta[i]!;
-
-    let m = 0;
-    for (let idx = 0; idx < js.length; idx++) {
-      const j = js[idx]!;
-      m += coeff[idx]! * betaRatio(a, b, j, k - j);
-    }
-
-    let e2 = 0;
-    for (let idxJ = 0; idxJ < js.length; idxJ++) {
-      const j = js[idxJ]!;
-      const cJ = coeff[idxJ]!;
-      for (let idxL = 0; idxL < js.length; idxL++) {
-        const l = js[idxL]!;
-        const cL = coeff[idxL]!;
-        e2 += cJ * cL * betaRatio(a, b, j + l, 2 * k - (j + l));
-      }
-    }
-
-    meanSum += m;
-    varSum += Math.max(0, e2 - m * m);
-  }
-
-  return [meanSum / M, Math.sqrt(varSum) / M];
+  return iidWeightedMoments(alpha, beta, M, js, coeff, k);
 }
 
 /** Posterior mean/std for the i.i.d. mG-Pass@k quantity. */
@@ -200,34 +226,7 @@ function mgPassAtKBayes(
   for (let j = majority + 1; j <= k; j++) js.push(j);
   const coeff = js.map((j) => (2.0 / k) * (j - majority) * comb(k, j));
 
-  let meanSum = 0;
-  let varSum = 0;
-  for (let i = 0; i < M; i++) {
-    const a = alpha[i]!;
-    const b = beta[i]!;
-
-    let m = 0;
-    for (let idx = 0; idx < js.length; idx++) {
-      const j = js[idx]!;
-      m += coeff[idx]! * betaRatio(a, b, j, k - j);
-    }
-
-    let e2 = 0;
-    for (let idxJ = 0; idxJ < js.length; idxJ++) {
-      const j = js[idxJ]!;
-      const cJ = coeff[idxJ]!;
-      for (let idxL = 0; idxL < js.length; idxL++) {
-        const l = js[idxL]!;
-        const cL = coeff[idxL]!;
-        e2 += cJ * cL * betaRatio(a, b, j + l, 2 * k - (j + l));
-      }
-    }
-
-    meanSum += m;
-    varSum += Math.max(0, e2 - m * m);
-  }
-
-  return [meanSum / M, Math.sqrt(varSum) / M];
+  return iidWeightedMoments(alpha, beta, M, js, coeff, k);
 }
 
 /** Posterior mean/std for the i.i.d. Pass@k quantity `1 - (1-p)^k`. */
