@@ -29,7 +29,7 @@ SIGNAL_TO_COLUMN: dict[str, str] = {
     "Lp_min":  "logprob_min",
     "Lp_iqr":  "logprob_iqr",
     # ── schemas.py (COLM-style) aliases ───────────────────────────
-    # These map the signal IDs used in _CRITERION_REGISTRY to the
+    # These map the signal IDs used in _SCHEMA_REGISTRY to the
     # closest available io.py columns.
     "C1":     "tail64_avg_logprob",   # completion avg logprob proxy
     "T_lp_min": "logprob_min",        # same concept as Lp_min

@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 from scorio.schema import evaluate_all, load_records
-from scorio.schema.schemas import _CRITERION_REGISTRY
+from scorio.schema.schemas import _SCHEMA_REGISTRY
 
 # ── raw-format fixture ────────────────────────────────────────────────
 
@@ -85,9 +85,9 @@ def test_evaluate_all_returns_expected_structure(synthetic_df):
             assert sigma >= 0.0
 
 
-def test_evaluate_all_covers_all_criteria(synthetic_df):
+def test_evaluate_all_covers_all_schemas(synthetic_df):
     results = evaluate_all(synthetic_df)
-    assert set(results.keys()) == set(_CRITERION_REGISTRY.keys())
+    assert set(results.keys()) == set(_SCHEMA_REGISTRY.keys())
 
 
 def test_evaluate_all_covers_both_models(synthetic_df):

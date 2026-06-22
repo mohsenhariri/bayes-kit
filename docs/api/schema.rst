@@ -38,6 +38,6 @@ Thresholds
 Evaluation
 ----------
 
-.. autofunction:: evaluate_criterion
+.. autofunction:: evaluate_schema
 
 .. autofunction:: evaluate_all

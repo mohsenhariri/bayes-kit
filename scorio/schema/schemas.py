@@ -4,13 +4,13 @@
 # From there, they will be put in R matrix form and run scorio bayes@k on them in evaluate.py
 
 
-_CRITERION_REGISTRY: dict[str, dict] = {}
+_SCHEMA_REGISTRY: dict[str, dict] = {}
 
-__all__ = ["_CRITERION_REGISTRY"]
+__all__ = ["_SCHEMA_REGISTRY"]
 
 
 def _register(cid: str, name: str, signals: list[str], classify_fn):
-    _CRITERION_REGISTRY[cid] = {
+    _SCHEMA_REGISTRY[cid] = {
         "id": cid,
         "name": name,
         "signals": signals,
