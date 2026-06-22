@@ -75,6 +75,7 @@ Contents
    api/eval
    api/rank
    api/utils
+   api/schema
 
 .. toctree::
    :maxdepth: 1
