@@ -7,3 +7,7 @@ build/
 *.egg-info/
 docs/_build/
 .pytest_cache/
+# Local secrets (never commit)
+*.token.env
+.token.env
+.npmrc

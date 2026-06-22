@@ -1,0 +1,63 @@
+{
+  "name": "scorio",
+  "version": "0.2.2",
+  "description": "Bayesian evaluation toolkit for stochastic models — a TypeScript port of the Scorio eval APIs (zero dependencies).",
+  "keywords": [
+    "bayesian",
+    "statistics",
+    "evaluation",
+    "machine-learning",
+    "large-language-models",
+    "pass-at-k"
+  ],
+  "license": "MIT",
+  "author": "Mohsen Hariri <mohsen.hariri@case.edu>",
+  "homepage": "https://scorio.readthedocs.io/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mohsenhariri/scorio.git",
+    "directory": "js/scorio"
+  },
+  "bugs": {
+    "url": "https://github.com/mohsenhariri/scorio/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./eval": {
+      "types": "./dist/eval/index.d.ts",
+      "import": "./dist/eval/index.js",
+      "require": "./dist/eval/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
