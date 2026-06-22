@@ -1,0 +1,69 @@
+# Publishes the npm package (js/scorio) when a GitHub Release is created.
+#
+# Trigger: a published Release whose tag starts with `js-v` (e.g. js-v0.2.2).
+# The tag version must match the root VERSION file and js/scorio/package.json.
+#
+# Auth: npm OIDC "trusted publishing" — no NPM_TOKEN secret is stored. This
+# mirrors the trusted-publishing setup used for PyPI. It also emits build
+# provenance automatically.
+#
+# One-time setup (required before the first CI publish):
+#   1. Publish `scorio` to npm once (e.g. `make -C js publish`) so the package
+#      exists.
+#   2. On npmjs.com, open the package -> Settings -> Trusted Publishers and add
+#      this repository + workflow (.github/workflows/npm-publish.yml).
+# After that, every `js-v*` release publishes automatically.
+
+name: Publish npm Package
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  npm-publish:
+    if: startsWith(github.event.release.tag_name, 'js-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # mandatory for trusted publishing + provenance
+    defaults:
+      run:
+        working-directory: js/scorio
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Upgrade npm (trusted publishing needs npm >= 11.5.1)
+        run: npm install -g npm@latest
+
+      - name: Verify tag matches VERSION and package.json
+        working-directory: ${{ github.workspace }}
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          TAG_VERSION="${TAG#js-v}"
+          FILE_VERSION="$(tr -d '[:space:]' < VERSION)"
+          PKG_VERSION="$(node -p "require('./js/scorio/package.json').version")"
+          if [ "${TAG_VERSION}" != "${FILE_VERSION}" ] || [ "${TAG_VERSION}" != "${PKG_VERSION}" ]; then
+            echo "Version mismatch: tag=${TAG_VERSION} VERSION=${FILE_VERSION} package.json=${PKG_VERSION}"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Publish to npm
+        run: npm publish

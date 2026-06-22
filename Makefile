@@ -2,7 +2,7 @@
 SRC:=scorio/
 JULIA_PROJECT:=julia/Scorio.jl
 
-.PHONY: format format-check lint clean build install test pkg-check pkg-publish-test pkg-publish sync-version release-py release-jl jl-install jl-test jl-test-slow py-docs-build py-docs-clean py-docs-serve jl-docs-build jl-docs-clean jl-docs-serve landing-serve
+.PHONY: format format-check lint clean build install test pkg-check pkg-publish-test pkg-publish sync-version release-py release-jl release-js js-build js-test jl-install jl-test jl-test-slow py-docs-build py-docs-clean py-docs-serve jl-docs-build jl-docs-clean jl-docs-serve landing-serve
 .PHONY: test-eval-py test-rank-py test-rank-py-slow test-eval-jl test-rank-jl test-rank-jl-slow
 
 format-check:
@@ -62,6 +62,16 @@ release-py:
 
 release-jl:
 	./scripts/release_github.sh jl
+
+release-js:
+	./scripts/release_github.sh js
+
+# npm package (delegates to js/Makefile)
+js-build:
+	$(MAKE) -C js build
+
+js-test:
+	$(MAKE) -C js test
 
 jl-install:
 	julia --project=$(JULIA_PROJECT) -e 'using Pkg; Pkg.instantiate()'
