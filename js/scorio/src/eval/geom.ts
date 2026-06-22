@@ -291,10 +291,23 @@ function passAndSpectrumRowPosteriorMoments(
     const aI = alpha[i]!;
     const bI = beta[i]!;
 
-    const eqk = betaRatio(aI, bI, 0, k);
-    const eq2k = betaRatio(aI, bI, 0, 2 * k);
+    // tK[x] = Beta(aI+x, bI+k-x)/Beta(aI,bI); t2K[x] = Beta(aI+x, bI+2k-x)/Beta(aI,bI).
+    // Each is built from one betaRatio seed via the recurrence
+    //   t[x] = t[x-1] * (aI + x - 1) / (sumTo - x),
+    // removing the O(k^2) gammaln-bearing betaRatio calls in the moment sums.
+    const tK = new Array<number>(k + 1);
+    tK[0] = betaRatio(aI, bI, 0, k);
+    for (let x = 1; x <= k; x++) tK[x] = (tK[x - 1]! * (aI + x - 1)) / (bI + k - x);
+
+    const t2K = new Array<number>(2 * k + 1);
+    t2K[0] = betaRatio(aI, bI, 0, 2 * k);
+    for (let x = 1; x <= 2 * k; x++) {
+      t2K[x] = (t2K[x - 1]! * (aI + x - 1)) / (bI + 2 * k - x);
+    }
+
+    const eqk = tK[0]!;
     const mPass = 1.0 - eqk;
-    const vPass = Math.max(0.0, eq2k - eqk * eqk);
+    const vPass = Math.max(0.0, t2K[0]! - eqk * eqk);
 
     let mSpec = 0.0;
     let e2Spec = 0.0;
@@ -302,12 +315,11 @@ function passAndSpectrumRowPosteriorMoments(
 
     for (const j of activeJs) {
       const cJ = coeff[j]!;
-      const momentJ = betaRatio(aI, bI, j, k - j);
+      const momentJ = tK[j]!;
       mSpec += cJ * momentJ;
-      ePs += cJ * (momentJ - betaRatio(aI, bI, j, 2 * k - j));
+      ePs += cJ * (momentJ - t2K[j]!);
       for (const l of activeJs) {
-        const cL = coeff[l]!;
-        e2Spec += cJ * cL * betaRatio(aI, bI, j + l, 2 * k - (j + l));
+        e2Spec += cJ * coeff[l]! * t2K[j + l]!;
       }
     }
 

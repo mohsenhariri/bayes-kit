@@ -16,16 +16,6 @@ import { normalCredibleInterval, type Bounds } from "./internal/ci.js";
 import { asMatrix, validateMatrixRange, type Matrix } from "./internal/validate.js";
 import { bayesCi } from "./bayes.js";
 
-/** Numerically stable `log(sum(exp(values)))`, mirroring `scipy.special.logsumexp`. */
-function logSumExp(values: readonly number[]): number {
-  let max = -Infinity;
-  for (const v of values) if (v > max) max = v;
-  if (max === -Infinity) return -Infinity;
-  let sum = 0;
-  for (const v of values) sum += Math.exp(v - max);
-  return max + Math.log(sum);
-}
-
 /** Per-row counts of the values `0..length-1` over a possibly-empty matrix. */
 function rowBincountWide(
   A: readonly (readonly number[])[],
@@ -144,20 +134,25 @@ function dirichletNestedCumulativeMoment(
   if (b <= 0.0) {
     throw new Error("b must be > 0 for nested cumulative moments");
   }
-  const logTerms: number[] = [];
-  for (let r = 0; r <= k; r++) {
-    logTerms.push(
-      gammaln(k + 1.0) -
-        gammaln(r + 1.0) -
-        gammaln(k - r + 1.0) +
-        gammaln(a + k + r) -
-        gammaln(a) +
-        gammaln(b + k - r) -
-        gammaln(b) -
-        (gammaln(total + 2.0 * k) - gammaln(total)),
-    );
+  // The sum Σ_{r=0}^k C(k,r) · [Γ(a+k+r)/Γ(a)] · [Γ(b+k-r)/Γ(b)] / [Γ(total+2k)/Γ(total)]
+  // has consecutive terms related by
+  //   T(r) = T(r-1) · (k-r+1)/r · (a+k+r-1)/(b+k-r),
+  // so a single gammaln-evaluated seed plus an O(k) arithmetic recurrence
+  // replaces the per-term gammaln calls. The terms are nonnegative moments
+  // summing to a probability in [0, 1], so no log-sum-exp is needed.
+  let t = Math.exp(
+    gammaln(a + k) -
+      gammaln(a) +
+      gammaln(b + k) -
+      gammaln(b) -
+      (gammaln(total + 2.0 * k) - gammaln(total)),
+  );
+  let sum = t;
+  for (let r = 1; r <= k; r++) {
+    t *= ((k - r + 1) / r) * ((a + k + r - 1) / (b + k - r));
+    sum += t;
   }
-  return Math.exp(logSumExp(logTerms));
+  return sum;
 }
 
 /**

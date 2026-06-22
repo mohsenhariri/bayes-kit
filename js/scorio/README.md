@@ -2,14 +2,15 @@
 
 Bayesian evaluation toolkit for stochastic models — a TypeScript/JavaScript port of the [Scorio](https://github.com/mohsenhariri/scorio) `eval` APIs.
 
-It computes point estimates **and** Bayesian uncertainty for the metrics commonly used to evaluate LLMs and other stochastic models under repeated sampling: Bayes@N, Avg@N, Pass@k / Pass^k, G-Pass@k, Maj@k, AUC@K, Max@k, and the geometric/spectrum blends.
+It provides two families of APIs:
 
-- **Zero runtime dependencies** — pure TypeScript (special functions reimplemented from `scipy.special`).
+- **`scorio/eval`** — point estimates **and** Bayesian uncertainty for metrics used to evaluate LLMs and other stochastic models under repeated sampling: Bayes@N, Avg@N, Pass@k / Pass^k, G-Pass@k, Maj@k, AUC@K, Max@k, and the geometric/spectrum blends.
+- **`scorio/rank`** — 40+ ranking estimators that order multiple models from a binary (or categorical) response tensor: eval-metric, voting, pairwise-rating (Elo/Glicko/TrueSkill), Bradley-Terry / Plackett-Luce / Rao-Kupper, IRT (Rasch/2PL/3PL/MML), graph (PageRank/spectral/α-Rank/Nash), seriation, and Hodge-theoretic methods.
+
+- **Zero runtime dependencies** — pure TypeScript (special functions, linear algebra, optimization, and an LP solver reimplemented from `scipy`/`numpy`).
 - **Dual ESM + CommonJS** builds with full type declarations.
-- **Numerically faithful** to the Python reference (verified against its published values).
-- **Two naming styles**: idiomatic camelCase (`passAtK`) and snake_case aliases matching the Python/Julia API (`pass_at_k`).
-
-> Scope: this package currently covers the **evaluation** APIs. The ranking APIs are not yet ported.
+- **Numerically faithful** to the Python reference (verified against generated ground-truth fixtures).
+- **Two naming styles**: idiomatic camelCase (`passAtK`, `bradleyTerry`) and snake_case aliases matching the Python/Julia API (`pass_at_k`, `bradley_terry`).
 
 ## Install
 
@@ -71,6 +72,47 @@ Point estimators return a scalar score. Every metric has a companion `*Ci` funct
 | Geometric / spectrum | `geomAtK`, `geomDsAtK`, `geoSpectrumAtK`, `geoSpectrumStarAtK`, `thresholdSpectrumAtK` | each with a `*Ci` variant |
 
 Each camelCase name has a snake_case alias (`pass_at_k`, `g_pass_at_k_tau`, `geo_spectrum_at_k`, …) for parity with the Python and Julia packages.
+
+## Ranking (`scorio/rank`)
+
+Ranking estimators take a response tensor `R` of shape `(L, M, N)` — `L` models, `M` questions, `N` trials — with binary entries (a 2-D `(L, M)` matrix is treated as `N = 1`). Each method returns `{ ranking, scores }`: `ranking[l]` is model `l`'s rank (1 = best) and `scores[l]` the raw method score (larger is better). The optional `method` selects the tie convention (`"competition"` by default; also `"competition_max"`, `"dense"`, `"avg"`).
+
+```ts
+import { rank } from "scorio";
+// or: import { borda, bradleyTerry } from "scorio/rank";
+
+// 2 models, 2 questions, 2 trials
+const R = [
+  [[1, 1], [1, 1]],
+  [[0, 0], [0, 0]],
+];
+
+rank.borda(R).ranking;          // [1, 2]
+rank.elo(R).scores;             // final Elo ratings
+rank.bradleyTerry(R, { maxIter: 100 }).ranking;
+rank.bayes(R, { quantile: 0.05 });   // conservative, uncertainty-aware
+rank.raschMap(R, { prior: 1.0 });    // MAP IRT with a Gaussian prior
+
+// snake_case aliases mirror the Python API
+rank.pass_at_k(R, 2);
+rank.rank_centrality(R);
+```
+
+| Family | Methods |
+| --- | --- |
+| Eval-metric | `avg`, `bayes`, `passAtK`, `passHatK`, `gPassAtKTau`, `mgPassAtK` |
+| Pointwise | `inverseDifficulty` |
+| Pairwise ratings | `elo`, `glicko`, `trueskill` |
+| Bradley-Terry | `bradleyTerry`(`Map`), `bradleyTerryDavidson`(`Map`), `raoKupper`(`Map`) |
+| Bayesian | `thompson`, `bayesianMcmc` |
+| Voting | `borda`, `copeland`, `winRate`, `minimax`, `schulze`, `rankedPairs`, `kemenyYoung`, `nanson`, `baldwin`, `majorityJudgment` |
+| IRT | `rasch`(`Map`), `rasch2pl`(`Map`), `rasch3pl`(`Map`), `raschMml`, `raschMmlCredible`, `dynamicIrt` |
+| Graph | `pagerank`, `spectral`, `alpharank`, `nash`, `rankCentrality` |
+| Seriation / Hodge | `serialRank`, `hodgeRank` |
+| Plackett-Luce | `plackettLuce`(`Map`), `davidsonLuce`(`Map`), `bradleyTerryLuce`(`Map`) |
+| Priors (for MAP) | `GaussianPrior`, `LaplacePrior`, `CauchyPrior`, `UniformPrior`, `CustomPrior`, `EmpiricalPrior` |
+
+The MAP estimators accept a `prior` option — either a variance (interpreted as a zero-mean `GaussianPrior`) or a `Prior` instance. The Monte-Carlo methods (`thompson`, `bayesianMcmc`) are seeded and reproducible but, since they use a different RNG, are not bit-identical to the Python reference.
 
 ## Development
 
