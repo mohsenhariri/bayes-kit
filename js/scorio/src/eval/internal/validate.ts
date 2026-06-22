@@ -26,7 +26,13 @@ export function asMatrix(R: Matrix): number[][] {
 }
 
 function toInt(x: number): number {
-  return Math.trunc(x);
+  // Reject genuinely fractional values (e.g. probabilities like 0.8) rather
+  // than silently truncating them. Integer-valued floats (1.0) pass, since
+  // `Number.isInteger(1.0)` is true.
+  if (!Number.isInteger(x)) {
+    throw new Error(`Outcome matrix entries must be integers; got ${x}`);
+  }
+  return x;
 }
 
 /** Validate that every entry lies in the closed integer interval `[low, high]`. */

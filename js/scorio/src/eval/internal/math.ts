@@ -17,10 +17,12 @@ const LANCZOS_COEFFS = [
 /** Natural log of the absolute value of the Gamma function, `lgamma(x)`. */
 export function gammaln(x: number): number {
   if (Number.isNaN(x)) return NaN;
-  // Reflection formula for x < 0.5.
+  // Reflection formula for x < 0.5. Use |sin| because this returns the log of
+  // the absolute value of Gamma; without it, negative non-integers (where
+  // sin(pi x) < 0) would yield log of a negative number, i.e. NaN.
   if (x < 0.5) {
     return (
-      Math.log(Math.PI / Math.sin(Math.PI * x)) - gammaln(1 - x)
+      Math.log(Math.PI / Math.abs(Math.sin(Math.PI * x))) - gammaln(1 - x)
     );
   }
   x -= 1;

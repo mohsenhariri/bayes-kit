@@ -211,8 +211,8 @@ function maxAtKBayes(
   const L = gamma[0]!.length;
   const total = gamma[0]!.reduce((s, v) => s + v, 0);
 
-  if (k < 1) {
-    throw new Error(`k must be >= 1; got ${k}`);
+  if (k < 1 || !Number.isInteger(k)) {
+    throw new Error(`k must be an integer >= 1; got ${k}`);
   }
   // The posterior moments describe the latent distribution, so k is not
   // restricted by the observed sample size once the posterior is defined.
