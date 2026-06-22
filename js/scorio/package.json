@@ -35,6 +35,11 @@
       "types": "./dist/eval/index.d.ts",
       "import": "./dist/eval/index.js",
       "require": "./dist/eval/index.cjs"
+    },
+    "./rank": {
+      "types": "./dist/rank/index.d.ts",
+      "import": "./dist/rank/index.js",
+      "require": "./dist/rank/index.cjs"
     }
   },
   "files": [

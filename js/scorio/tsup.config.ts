@@ -1,7 +1,7 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-  entry: ["src/index.ts", "src/eval/index.ts"],
+  entry: ["src/index.ts", "src/eval/index.ts", "src/rank/index.ts"],
   format: ["esm", "cjs"],
   dts: true,
   clean: true,

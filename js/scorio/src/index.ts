@@ -10,6 +10,10 @@
  * ```
  *
  * The metrics are also importable directly from `scorio/eval`.
+ *
+ * Ranking estimators live under the `rank` namespace (`scorio.rank.borda(...)`)
+ * and are also importable directly from `scorio/rank`.
  */
 
 export * as eval from "./eval/index.js";
+export * as rank from "./rank/index.js";
