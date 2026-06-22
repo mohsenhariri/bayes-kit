@@ -1,15 +1,29 @@
-# Schemas are designed and stored here
+"""Schema registry for scorio signal-based evaluation.
 
-# These schemas will score the dataframe after thresholds.py is run on io.py and score the individual completions in the df
-# From there, they will be put in R matrix form and run scorio bayes@k on them in evaluate.py
+Each schema maps a named set of signals to a classification function that
+returns a ``(category_name, description, score)`` tuple.  Schemas are
+registered via :func:`_register` and consumed by
+:mod:`scorio.schema.evaluate`.
+"""
 
+from __future__ import annotations
+
+from collections.abc import Callable
+
+from scorio.schema.thresholds import Thresholds
 
 _SCHEMA_REGISTRY: dict[str, dict] = {}
 
 __all__ = ["_SCHEMA_REGISTRY"]
 
+ClassifyFn = Callable[
+    [dict[str, str], dict[str, float | None], Thresholds],
+    tuple[str, str, float],
+]
 
-def _register(cid: str, name: str, signals: list[str], classify_fn):
+
+def _register(cid: str, name: str, signals: list[str], classify_fn: ClassifyFn) -> None:
+    """Add a schema entry to the registry."""
     _SCHEMA_REGISTRY[cid] = {
         "id": cid,
         "name": name,
@@ -17,8 +31,12 @@ def _register(cid: str, name: str, signals: list[str], classify_fn):
         "classify": classify_fn,
     }
 
+
 # 2.1 - Confident & Correct (Calibration) -> C1 x R1
-def _cls_2_1(lvl, val, th):
+def _cls_2_1(
+    lvl: dict[str, str], val: dict[str, float | None], th: Thresholds
+) -> tuple[str, str, float]:
+    """Classify calibration quality by confidence level vs. correctness."""
     c1, r1 = lvl.get("C1", "low"), lvl.get("R1", "0")
     if c1 == "high" and r1 == "1":
         return ("Confident & Correct",
@@ -34,8 +52,12 @@ def _cls_2_1(lvl, val, th):
 
 _register("2.1", "Confident & Correct (Calibration)", ["C1", "R1"], _cls_2_1)
 
+
 # 2.12 - Token Surprise vs. Correctness -> T_lp_min x R1
-def _cls_2_12(lvl, val, th):
+def _cls_2_12(
+    lvl: dict[str, str], val: dict[str, float | None], th: Thresholds
+) -> tuple[str, str, float]:
+    """Classify whether peak token surprise correlates with correctness."""
     tlm, r1 = lvl.get("T_lp_min", "low"), lvl.get("R1", "0")
     if tlm == "low" and r1 == "0":
         return ("Critical Token Derailed Answer",
@@ -51,8 +73,12 @@ def _cls_2_12(lvl, val, th):
 
 _register("2.12", "Token Surprise vs. Correctness", ["T_lp_min", "R1"], _cls_2_12)
 
+
 # 2.5 - Format Compliance & Correctness -> R2 x R1
-def _cls_2_5(lvl, val, th):
+def _cls_2_5(
+    lvl: dict[str, str], val: dict[str, float | None], th: Thresholds
+) -> tuple[str, str, float]:
+    """Classify format compliance against answer correctness."""
     r2, r1 = lvl.get("R2", "0"), lvl.get("R1", "0")
     if r2 == "1" and r1 == "1":
         return ("Full Compliance", "Followed format and correct.", 1.0)
@@ -64,8 +90,12 @@ def _cls_2_5(lvl, val, th):
 
 _register("2.5", "Format Compliance & Correctness", ["R2", "R1"], _cls_2_5)
 
+
 # 2.2 - Difficulty-Adjusted Correctness -> P2 x R1
-def _cls_2_2(lvl, val, th):
+def _cls_2_2(
+    lvl: dict[str, str], val: dict[str, float | None], th: Thresholds
+) -> tuple[str, str, float]:
+    """Classify correctness relative to problem difficulty."""
     p2, r1 = lvl.get("P2", "low"), lvl.get("R1", "0")
     if p2 == "high" and r1 == "1":
         return ("Hard Problem Solved", "Solved a hard problem - impressive.", 1.0)
@@ -77,8 +107,12 @@ def _cls_2_2(lvl, val, th):
 
 _register("2.2", "Difficulty-Adjusted Correctness", ["P2", "R1"], _cls_2_2)
 
+
 # 3.18 - IO Ratio Profile -> P3 x C3 x R1
-def _cls_3_18(lvl, val, th):
+def _cls_3_18(
+    lvl: dict[str, str], val: dict[str, float | None], th: Thresholds
+) -> tuple[str, str, float]:
+    """Classify prompt-to-completion length ratio against correctness."""
     p3, c3, r1 = lvl.get("P3", "low"), lvl.get("C3", "low"), lvl.get("R1", "0")
     if p3 == "low" and c3 == "high" and r1 == "1":
         return ("Insightful Compression", "Complex prompt, short completion, correct.", 1.0)
