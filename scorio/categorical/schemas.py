@@ -22,17 +22,17 @@ ClassifyFn = Callable[
 ]
 
 
-def _register(cid: str, name: str, signals: list[str], classify_fn: ClassifyFn) -> None:
+def _register(name: str, signals: list[str], classify_fn: ClassifyFn) -> None:
     """Add a schema entry to the registry."""
-    _SCHEMA_REGISTRY[cid] = {
-        "id": cid,
+    _SCHEMA_REGISTRY[name] = {
+        "cid": name,
         "name": name,
         "signals": signals,
         "classify": classify_fn,
     }
 
 
-# 2.1 - Confident & Correct (Calibration) -> C1 x R1
+# Confident & Correct (Calibration) -> C1 x R1
 def _cls_2_1(
     lvl: dict[str, str], val: dict[str, float | None], th: Thresholds
 ) -> tuple[str, str, float]:
@@ -50,10 +50,10 @@ def _cls_2_1(
     return ("Uncertain & Wrong",
             "Model was unsure and got it wrong - expected, less concerning.", 0.2)
 
-_register("2.1", "Confident & Correct (Calibration)", ["C1", "R1"], _cls_2_1)
+_register("Confident & Correct (Calibration)", ["C1", "R1"], _cls_2_1)
 
 
-# 2.12 - Token Surprise vs. Correctness -> T_lp_min x R1
+# Token Surprise vs. Correctness -> T_lp_min x R1
 def _cls_2_12(
     lvl: dict[str, str], val: dict[str, float | None], th: Thresholds
 ) -> tuple[str, str, float]:
@@ -71,10 +71,10 @@ def _cls_2_12(
     return ("Smooth but Wrong",
             "No extreme token surprise yet wrong - the error isn't from a single uncertain moment.", 0.3)
 
-_register("2.12", "Token Surprise vs. Correctness", ["T_lp_min", "R1"], _cls_2_12)
+_register("Token Surprise vs. Correctness", ["T_lp_min", "R1"], _cls_2_12)
 
 
-# 2.5 - Format Compliance & Correctness -> R2 x R1
+# Format Compliance & Correctness -> R2 x R1
 def _cls_2_5(
     lvl: dict[str, str], val: dict[str, float | None], th: Thresholds
 ) -> tuple[str, str, float]:
@@ -88,10 +88,10 @@ def _cls_2_5(
         return ("Correct but Unformatted", "Right answer buried in unstructured output - extraction risk.", 0.6)
     return ("Fully Non-Compliant", "No format compliance and incorrect.", 0.0)
 
-_register("2.5", "Format Compliance & Correctness", ["R2", "R1"], _cls_2_5)
+_register("Format Compliance & Correctness", ["R2", "R1"], _cls_2_5)
 
 
-# 2.2 - Difficulty-Adjusted Correctness -> P2 x R1
+# Difficulty-Adjusted Correctness -> P2 x R1
 def _cls_2_2(
     lvl: dict[str, str], val: dict[str, float | None], th: Thresholds
 ) -> tuple[str, str, float]:
@@ -105,10 +105,10 @@ def _cls_2_2(
         return ("Easy Problem Solved", "Solved an easy problem - routine.", 0.7)
     return ("Easy Problem Failed", "Failed an easy problem - concerning.", 0.1)
 
-_register("2.2", "Difficulty-Adjusted Correctness", ["P2", "R1"], _cls_2_2)
+_register("Difficulty-Adjusted Correctness", ["P2", "R1"], _cls_2_2)
 
 
-# 3.18 - IO Ratio Profile -> P3 x C3 x R1
+# IO Ratio Profile -> P3 x C3 x R1
 def _cls_3_18(
     lvl: dict[str, str], val: dict[str, float | None], th: Thresholds
 ) -> tuple[str, str, float]:
@@ -127,4 +127,4 @@ def _cls_3_18(
     return ("Mixed IO Profile", "P3={}, C3={}, R1={}.".format(p3, c3, r1),
             0.5 if r1 == "1" else 0.2)
 
-_register("3.18", "IO Ratio Profile", ["P3", "C3", "R1"], _cls_3_18)
+_register("IO Ratio Profile", ["P3", "C3", "R1"], _cls_3_18)
