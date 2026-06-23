@@ -175,7 +175,7 @@ all_results = evaluate_all(
     signals="data/signals/model-alpha.jsonl",         # single .jsonl file
 )
 # {
-#   "Confident & Correct": {"model-alpha": (0.5813, 0.0213)},
+#   "Confident & Correct":               {"model-alpha": (0.5813, 0.0213)},
 #   "Difficulty-Adjusted Correctness":   {"model-alpha": (0.6600, 0.0194)},
 #   "Format Compliance & Correctness":   {"model-alpha": (0.6125, 0.0219)},
 #   "IO Ratio Profile":                  {"model-alpha": (0.5946, 0.0188)},
