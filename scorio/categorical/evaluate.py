@@ -25,7 +25,11 @@ import pandas as pd
 from scorio import eval as scorio_eval
 from scorio.categorical.io import load_records
 from scorio.categorical.schemas import _SCHEMA_REGISTRY
-from scorio.categorical.thresholds import Thresholds, _classify_signal, _get_signal_value
+from scorio.categorical.thresholds import (
+    Thresholds,
+    _classify_signal,
+    _get_signal_value,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,12 +66,14 @@ def _score_rows(
                 lvl[sig_id] = _classify_signal(sig_id, v, thresholds)
 
         *_, score = classify_fn(lvl, val, thresholds)
-        records.append({
-            "model":   row.get("model"),
-            "problem": row.get("problem"),
-            "trial":   row.get("trial", 0),
-            "score":   float(score),
-        })
+        records.append(
+            {
+                "model": row.get("model"),
+                "problem": row.get("problem"),
+                "trial": row.get("trial", 0),
+                "score": float(score),
+            }
+        )
 
     return pd.DataFrame(records)
 
@@ -134,8 +140,7 @@ def evaluate_schema(
     """
     if schema_id not in _SCHEMA_REGISTRY:
         raise KeyError(
-            f"Unknown schema {schema_id!r}. "
-            f"Registered: {sorted(_SCHEMA_REGISTRY)}"
+            f"Unknown schema {schema_id!r}. Registered: {sorted(_SCHEMA_REGISTRY)}"
         )
     schema_entry = _SCHEMA_REGISTRY[schema_id]
 
@@ -146,7 +151,8 @@ def evaluate_schema(
     if thresholds is None:
         logger.info(
             "schema=%s: computing thresholds from %d rows",
-            schema_id, len(df),
+            schema_id,
+            len(df),
         )
         thresholds = Thresholds.from_dataframe(df)
 
@@ -161,7 +167,9 @@ def evaluate_schema(
             if R_int.shape[0] == 0:
                 logger.warning(
                     "schema=%s %s=%s: empty R matrix — skipping",
-                    schema_id, group_key, label,
+                    schema_id,
+                    group_key,
+                    label,
                 )
                 continue
 
@@ -169,19 +177,29 @@ def evaluate_schema(
             results[label] = (mu, sigma)
             logger.debug(
                 "schema=%s %s=%s: R%s w=%s → bayes=(%.4f ± %.4f)",
-                schema_id, group_key, label,
-                R_int.shape, w.tolist(), mu, sigma,
+                schema_id,
+                group_key,
+                label,
+                R_int.shape,
+                w.tolist(),
+                mu,
+                sigma,
             )
 
         except Exception as exc:
             logger.error(
                 "schema=%s %s=%s: failed — %s",
-                schema_id, group_key, label, exc, exc_info=True,
+                schema_id,
+                group_key,
+                label,
+                exc,
+                exc_info=True,
             )
 
     logger.info(
         "schema=%s: evaluated %d group(s)",
-        schema_id, len(results),
+        schema_id,
+        len(results),
     )
     return results
 
@@ -217,7 +235,8 @@ def evaluate_all(
     if thresholds is None:
         logger.info(
             "evaluate_all: computing thresholds from %d rows (reused for %d schema/s)",
-            len(df), len(ids),
+            len(df),
+            len(ids),
         )
         thresholds = Thresholds.from_dataframe(df)
 

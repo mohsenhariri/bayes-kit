@@ -17,6 +17,6 @@ Modules
 
 __version__ = "0.2.2"
 
-from . import eval, rank, sinf, utils, categorical
+from . import categorical, eval, rank, sinf, utils
 
 __all__ = ["eval", "rank", "sinf", "utils", "categorical"]

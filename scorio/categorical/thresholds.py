@@ -26,26 +26,26 @@ SIGNAL_TO_COLUMN: dict[str, str] = {
     "C_ppl": "completion_perplexity",
     "P_ppl": "prompt_perplexity",
     # ── token-level log-prob signals ──────────────────────────────
-    "Lp_min":  "logprob_min",
-    "Lp_iqr":  "logprob_iqr",
+    "Lp_min": "logprob_min",
+    "Lp_iqr": "logprob_iqr",
     # ── schemas.py (COLM-style) aliases ───────────────────────────
-    "C1":     "completion_avg_logprob",  # mean log P(token) over all completion tokens
-    "T_lp_min": "logprob_min",           # same concept as Lp_min
-    "P2":     "prompt_perplexity",       # prompt ppl ≈ prompt perplexity
-    "P3":     "prompt_sum_logprob",      # Σ log P(token) over all prompt tokens
-    "C3":     "completion_sum_logprob",  # Σ log P(token) over all completion tokens
+    "C1": "completion_avg_logprob",  # mean log P(token) over all completion tokens
+    "T_lp_min": "logprob_min",  # same concept as Lp_min
+    "P2": "prompt_perplexity",  # prompt ppl ≈ prompt perplexity
+    "P3": "prompt_sum_logprob",  # Σ log P(token) over all prompt tokens
+    "C3": "completion_sum_logprob",  # Σ log P(token) over all completion tokens
     "Lp_tail": "tail64_avg_logprob",
     # ── optional outcome reward models ────────────────────────────
     "O1": "acemath_orm",
     "O2": "skywork_orm",
     "W1": "verifier_pA",
     # ── optional PRM step-score derived features ──────────────────
-    "V1_mean":  "prm1_steps_mean",
-    "V1_min":   "prm1_steps_min",
-    "V1_max":   "prm1_steps_max",
-    "V1_std":   "prm1_steps_std",
-    "V1_last":  "prm1_steps_last",
-    "V1_n":     "prm1_steps_n_steps",
+    "V1_mean": "prm1_steps_mean",
+    "V1_min": "prm1_steps_min",
+    "V1_max": "prm1_steps_max",
+    "V1_std": "prm1_steps_std",
+    "V1_last": "prm1_steps_last",
+    "V1_n": "prm1_steps_n_steps",
 }
 
 # Signals whose values are 0/1 flags; classified as "1"/"0" instead of
@@ -66,10 +66,10 @@ class Thresholds:
     """
 
     medians: dict[str, float] = field(default_factory=dict)
-    q25:     dict[str, float] = field(default_factory=dict)
-    q75:     dict[str, float] = field(default_factory=dict)
-    means:   dict[str, float] = field(default_factory=dict)
-    stds:    dict[str, float] = field(default_factory=dict)
+    q25: dict[str, float] = field(default_factory=dict)
+    q75: dict[str, float] = field(default_factory=dict)
+    means: dict[str, float] = field(default_factory=dict)
+    stds: dict[str, float] = field(default_factory=dict)
 
     @classmethod
     def from_dataframe(cls, df: pd.DataFrame) -> Thresholds:
@@ -93,10 +93,10 @@ class Thresholds:
             if len(series) == 0:
                 continue
             t.medians[sig_id] = float(series.median())
-            t.q25[sig_id]     = float(series.quantile(0.25))
-            t.q75[sig_id]     = float(series.quantile(0.75))
-            t.means[sig_id]   = float(series.mean())
-            t.stds[sig_id]    = float(series.std())
+            t.q25[sig_id] = float(series.quantile(0.25))
+            t.q75[sig_id] = float(series.quantile(0.75))
+            t.means[sig_id] = float(series.mean())
+            t.stds[sig_id] = float(series.std())
         return t
 
 
@@ -114,9 +114,7 @@ def _get_signal_value(row: pd.Series, signal_id: str) -> float | None:
     return float(v)
 
 
-def _classify_signal(
-    signal_id: str, value: float, thresholds: Thresholds
-) -> str:
+def _classify_signal(signal_id: str, value: float, thresholds: Thresholds) -> str:
     """Classify a signal value as ``'high'``/``'low'`` or ``'1'``/``'0'``."""
     if signal_id in BINARY_SIGNALS:
         return "1" if value >= 0.5 else "0"

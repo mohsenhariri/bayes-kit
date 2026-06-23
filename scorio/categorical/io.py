@@ -50,11 +50,11 @@ def _prm_summary(steps: list[float], prefix: str) -> dict:
     """Expand a PRM step-score list into flat scalar columns."""
     arr = np.asarray(steps, dtype=np.float64)
     return {
-        f"{prefix}_mean":    float(arr.mean()),
-        f"{prefix}_min":     float(arr.min()),
-        f"{prefix}_max":     float(arr.max()),
-        f"{prefix}_std":     float(arr.std()),
-        f"{prefix}_last":    float(arr[-1]),
+        f"{prefix}_mean": float(arr.mean()),
+        f"{prefix}_min": float(arr.min()),
+        f"{prefix}_max": float(arr.max()),
+        f"{prefix}_std": float(arr.std()),
+        f"{prefix}_last": float(arr[-1]),
         f"{prefix}_n_steps": len(arr),
     }
 
@@ -63,31 +63,37 @@ def _extract_row(rec: dict, source_file: str) -> dict:
     """Flatten one raw inference JSON record into a single-level dict."""
     out = rec.get("output") or {}
     tok = rec.get("tokens") or {}
-    pr  = rec.get("processed_results") or {}
+    pr = rec.get("processed_results") or {}
 
     lp_list = [v for v in (tok.get("completion_logprob_list") or []) if v is not None]
-    arr = np.asarray(lp_list, dtype=np.float64) if lp_list else np.array([], dtype=np.float64)
+    arr = (
+        np.asarray(lp_list, dtype=np.float64)
+        if lp_list
+        else np.array([], dtype=np.float64)
+    )
 
     return {
-        "source_file":              source_file,
-        "model":                    rec.get("model"),
-        "problem":                  rec.get("data_id"),
-        "trial":                    rec.get("seed"),
-        "is_correct":               pr.get("is_correct"),
-        "has_box":                  pr.get("has_box"),
-        "hit_max_len":              int(out.get("finish_reason") == "length"),
-        "completion_length":        out.get("num_completion_tokens"),
-        "completion_perplexity":    tok.get("completion_ppl"),
-        "prompt_perplexity":        tok.get("prompt_ppl"),
-        "logprob_min":              float(arr.min())                                        if arr.size else None,
-        "logprob_iqr":              float(np.percentile(arr, 75) - np.percentile(arr, 25)) if arr.size else None,
-        "tail64_avg_logprob":       float(arr[-64:].mean())                                 if arr.size else None,
-        "completion_avg_logprob":   tok.get("completion_avg_logprob"),
-        "completion_sum_logprob":   tok.get("completion_sum_logprob"),
-        "prompt_sum_logprob":       tok.get("prompt_sum_logprob"),
-        "acemath_orm":              None,
-        "skywork_orm":              None,
-        "verifier_pA":              None,
+        "source_file": source_file,
+        "model": rec.get("model"),
+        "problem": rec.get("data_id"),
+        "trial": rec.get("seed"),
+        "is_correct": pr.get("is_correct"),
+        "has_box": pr.get("has_box"),
+        "hit_max_len": int(out.get("finish_reason") == "length"),
+        "completion_length": out.get("num_completion_tokens"),
+        "completion_perplexity": tok.get("completion_ppl"),
+        "prompt_perplexity": tok.get("prompt_ppl"),
+        "logprob_min": float(arr.min()) if arr.size else None,
+        "logprob_iqr": float(np.percentile(arr, 75) - np.percentile(arr, 25))
+        if arr.size
+        else None,
+        "tail64_avg_logprob": float(arr[-64:].mean()) if arr.size else None,
+        "completion_avg_logprob": tok.get("completion_avg_logprob"),
+        "completion_sum_logprob": tok.get("completion_sum_logprob"),
+        "prompt_sum_logprob": tok.get("prompt_sum_logprob"),
+        "acemath_orm": None,
+        "skywork_orm": None,
+        "verifier_pA": None,
     }
 
 
@@ -121,11 +127,7 @@ def _iter_jsonl(path: Path) -> tuple[list[dict], int, int, int]:
     records: list[dict] = []
     total = skipped = malformed = 0
 
-    opener = (
-        gzip.open
-        if path.suffix == ".gz"
-        else open
-    )
+    opener = gzip.open if path.suffix == ".gz" else open
     with opener(path, "rt", encoding="utf-8", errors="replace") as fh:
         for raw in fh:
             total += 1
@@ -202,7 +204,9 @@ def load_records(
 
     n_files = len(files)
     n_workers = workers if workers is not None else (os.cpu_count() or 4)
-    logger.info("Loading %d file(s) from %s with %d worker(s)", n_files, root, n_workers)
+    logger.info(
+        "Loading %d file(s) from %s with %d worker(s)", n_files, root, n_workers
+    )
 
     all_rows: list[dict] = []
     failed = 0
@@ -226,7 +230,10 @@ def load_records(
     elapsed = time.perf_counter() - t0
     logger.info(
         "Loaded %d rows from %d/%d file(s) in %.2fs",
-        len(all_rows), n_files - failed, n_files, elapsed,
+        len(all_rows),
+        n_files - failed,
+        n_files,
+        elapsed,
     )
 
     df = pd.DataFrame(all_rows)
@@ -249,14 +256,17 @@ def _handle_result(res: FileResult, all_rows: list[dict]) -> None:
     logger.debug(
         "%s — %d lines, %d parsed, %d blank, %d malformed (%.2fs)",
         Path(res.file_path).name,
-        res.n_lines_total, res.n_records_parsed,
-        res.n_lines_skipped, res.n_lines_malformed,
+        res.n_lines_total,
+        res.n_records_parsed,
+        res.n_lines_skipped,
+        res.n_lines_malformed,
         res.elapsed_secs,
     )
     if res.n_lines_malformed:
         logger.warning(
             "%s: %d malformed JSON line(s) skipped",
-            Path(res.file_path).name, res.n_lines_malformed,
+            Path(res.file_path).name,
+            res.n_lines_malformed,
         )
 
 
