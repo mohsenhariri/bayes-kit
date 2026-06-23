@@ -2,10 +2,10 @@
 
 Pipeline
 --------
-1. Load JSONL signals into a DataFrame (:func:`scorio.schema.io.load_records`).
+1. Load JSONL signals into a DataFrame (:func:`scorio.categorical.io.load_records`).
 2. Compute per-signal thresholds from the pooled corpus
-   (:class:`scorio.schema.thresholds.Thresholds`).
-3. For each schema in :data:`scorio.schema.schemas._SCHEMA_REGISTRY`:
+   (:class:`scorio.categorical.thresholds.Thresholds`).
+3. For each schema in :data:`scorio.categorical.schemas._SCHEMA_REGISTRY`:
    a. Classify every row's signals into levels and apply the schema's
       ``classify_fn`` to obtain a float score per completion.
    b. Pivot (problem × trial) into an integer R matrix; derive weight
@@ -23,9 +23,9 @@ import numpy as np
 import pandas as pd
 
 from scorio import eval as scorio_eval
-from scorio.schema.io import load_records
-from scorio.schema.schemas import _SCHEMA_REGISTRY
-from scorio.schema.thresholds import Thresholds, _classify_signal, _get_signal_value
+from scorio.categorical.io import load_records
+from scorio.categorical.schemas import _SCHEMA_REGISTRY
+from scorio.categorical.thresholds import Thresholds, _classify_signal, _get_signal_value
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +119,7 @@ def evaluate_schema(
     """Evaluate one schema and return Bayes@N results per group.
 
     Args:
-        signals: DataFrame from :func:`~scorio.schema.io.load_records`, or a
+        signals: DataFrame from :func:`~scorio.categorical.io.load_records`, or a
                  path to a directory of ``.jsonl`` files.
         schema_id: Key in ``_SCHEMA_REGISTRY`` (e.g. ``"2.5"``).
         thresholds: Pre-computed thresholds. If ``None``, computed from *signals*.

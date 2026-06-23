@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from scorio.schema import evaluate_all, load_records
-from scorio.schema.schemas import _SCHEMA_REGISTRY
+from scorio.categorical import evaluate_all, load_records
+from scorio.categorical.schemas import _SCHEMA_REGISTRY
 
 # ── raw-format fixture ────────────────────────────────────────────────
 

@@ -22,7 +22,7 @@ Expected record format (the raw inference output):
     }
 
 The DataFrame produced by :func:`load_records` is consumed by
-:mod:`scorio.schema.thresholds` and :mod:`scorio.schema.schemas`.
+:mod:`scorio.categorical.thresholds` and :mod:`scorio.categorical.schemas`.
 """
 
 import gzip
@@ -166,7 +166,8 @@ def load_records(
     """Load all .jsonl (or .jsonl.gz) files under *path* into a DataFrame.
 
     Args:
-        path: Directory containing one or more ``.jsonl`` files (searched
+        path: Path to a single ``.jsonl`` / ``.jsonl.gz`` file, **or** a
+              directory containing one or more such files (searched
               recursively).
         workers: Number of parallel workers.  Defaults to
                  ``os.cpu_count()`` (or 4 if unavailable).  Pass ``1``
@@ -184,9 +185,14 @@ def load_records(
     if not root.exists():
         raise FileNotFoundError(f"Path does not exist: {root}")
 
-    files = sorted(root.rglob("*.jsonl")) + sorted(root.rglob("*.jsonl.gz"))
-    if not files:
-        raise ValueError(f"No .jsonl files found under {root}")
+    if root.is_file():
+        if not root.name.endswith((".jsonl", ".jsonl.gz")):
+            raise ValueError(f"Expected a .jsonl or .jsonl.gz file, got: {root.name}")
+        files = [root]
+    else:
+        files = sorted(root.rglob("*.jsonl")) + sorted(root.rglob("*.jsonl.gz"))
+        if not files:
+            raise ValueError(f"No .jsonl files found under {root}")
 
     n_files = len(files)
     n_workers = workers if workers is not None else (os.cpu_count() or 4)

@@ -3,14 +3,14 @@
 Each schema maps a named set of signals to a classification function that
 returns a ``(category_name, description, score)`` tuple.  Schemas are
 registered via :func:`_register` and consumed by
-:mod:`scorio.schema.evaluate`.
+:mod:`scorio.categorical.evaluate`.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 
-from scorio.schema.thresholds import Thresholds
+from scorio.categorical.thresholds import Thresholds
 
 _SCHEMA_REGISTRY: dict[str, dict] = {}
 

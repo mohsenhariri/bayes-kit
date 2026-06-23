@@ -1,7 +1,7 @@
 """Per-signal thresholds computed from a pooled reference DataFrame.
 
 Thresholds are computed once on the full corpus (via :meth:`Thresholds.from_dataframe`)
-and then used by :mod:`scorio.schema.schemas` to discretise continuous signal
+and then used by :mod:`scorio.categorical.schemas` to discretise continuous signal
 values into levels before category assignment.
 """
 
@@ -78,7 +78,7 @@ class Thresholds:
         """Compute thresholds from a pooled corpus DataFrame.
 
         Args:
-            df: DataFrame returned by :func:`scorio.schema.io.load_records`.
+            df: DataFrame returned by :func:`scorio.categorical.io.load_records`.
 
         Returns:
             A :class:`Thresholds` instance populated for every signal whose
