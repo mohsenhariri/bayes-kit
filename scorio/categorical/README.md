@@ -118,24 +118,69 @@ Continuous signals are discretized into `"high"` / `"low"` levels before being p
 
 ---
 
+## Expected JSONL Format
+
+Each line of an input `.jsonl` file must be a JSON object with the following structure.
+
+```json
+{
+  "seed": 1261,
+  "data_id": 6,
+  "model": "my-model-name",
+  "output": {
+    "finish_reason": "stop",
+    "num_completion_tokens": 512
+  },
+  "tokens": {
+    "completion_ppl": 1.09,
+    "prompt_ppl": 70.38,
+    "completion_logprob_list": [-0.12, -0.43, -0.07]
+  },
+  "processed_results": {
+    "is_correct": 1,
+    "has_box": 1
+  }
+}
+```
+
+| JSON field | Notes |
+|---|---|
+| `processed_results.is_correct` | Binary correctness label (0 or 1). |
+| `processed_results.has_box` | 1 if completion contains `\boxed{}`. |
+| `output.finish_reason` | Set to 1 when `finish_reason == "length"`. |
+| `output.num_completion_tokens` | Token count of the completion. |
+| `tokens.completion_ppl` | Completion perplexity. |
+| `tokens.prompt_ppl` | Prompt perplexity (proxy for difficulty). |
+| `tokens.completion_logprob_list` | Per-token log-probabilities. `logprob_min` is the minimum; `tail64_avg_logprob` is the mean of the last 64 tokens. |
+| `seed` | Identifies the sampling trial. |
+| `data_id` | Identifies the problem instance. |
+| `model` | Model identifier string. |
+
+---
+
 ## Usage
 
 ```python
-from scorio.categorical.schemas import _SCHEMA_REGISTRY
-from scorio.categorical.thresholds import Thresholds
+from scorio.categorical.evaluate import evaluate_schema, evaluate_all
 
-# Load thresholds from your dataset
-th = Thresholds.from_dataframe(df)
+# evaluate_schema: run a single schema over a directory of .jsonl files
+results = evaluate_schema(
+    signals="data/signals/",                    # directory of .jsonl files
+    schema_id="Confident & Correct",
+)
+# {"model-alpha": (0.5813, 0.0213)}
 
-# Inspect registered schemas
-for name, entry in _SCHEMA_REGISTRY.items():
-    print(name, "->", entry["signals"])
-
-# Classify a single attempt
-schema = _SCHEMA_REGISTRY["Confident & Correct (Calibration)"]
-levels = {"C1": "high", "R1": "1"}
-values = {"C1": -0.05, "R1": 1.0}
-category, description, score = schema["classify"](levels, values, th)
+# evaluate_all: run every schema over a single .jsonl file
+all_results = evaluate_all(
+    signals="data/signals/model-alpha.jsonl",         # single .jsonl file
+)
+# {
+#   "Confident & Correct": {"model-alpha": (0.5813, 0.0213)},
+#   "Difficulty-Adjusted Correctness":   {"model-alpha": (0.6600, 0.0194)},
+#   "Format Compliance & Correctness":   {"model-alpha": (0.6125, 0.0219)},
+#   "IO Ratio Profile":                  {"model-alpha": (0.5946, 0.0188)},
+#   "Token Surprise vs. Correctness":    {"model-alpha": (0.5656, 0.0183)},
+# }
 ```
 
-See `scorio.categorical.evaluate` for the full Dirichlet–Bayes evaluation pipeline.
+Each value is a `(mu, sigma)` pair — the posterior mean and standard deviation from the Dirichlet–Bayes model.

@@ -32,7 +32,7 @@ def _register(name: str, signals: list[str], classify_fn: ClassifyFn) -> None:
     }
 
 
-# Confident & Correct (Calibration) -> C1 x R1
+# Confident & Correct  -> C1 x R1
 def _cls_2_1(
     lvl: dict[str, str], val: dict[str, float | None], th: Thresholds
 ) -> tuple[str, str, float]:
@@ -50,7 +50,7 @@ def _cls_2_1(
     return ("Uncertain & Wrong",
             "Model was unsure and got it wrong - expected, less concerning.", 0.2)
 
-_register("Confident & Correct (Calibration)", ["C1", "R1"], _cls_2_1)
+_register("Confident & Correct", ["C1", "R1"], _cls_2_1)
 
 
 # Token Surprise vs. Correctness -> T_lp_min x R1
