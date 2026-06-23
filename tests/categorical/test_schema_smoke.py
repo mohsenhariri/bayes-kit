@@ -19,7 +19,10 @@ _RAW_RECORD = {
         "num_completion_tokens": 22818,
     },
     "tokens": {
+        "completion_avg_logprob": -0.3,
+        "completion_sum_logprob": -1.5,
         "completion_ppl": 1.094944594480259,
+        "prompt_sum_logprob": -4.0,
         "prompt_ppl": 70.38144192748423,
         "completion_logprob_list": [-0.5, -0.2, -0.1, -0.3, -0.4],
     },
@@ -48,6 +51,9 @@ def test_load_records_raw_format(tmp_path):
     assert np.isfinite(row["logprob_min"])
     assert np.isfinite(row["logprob_iqr"])
     assert np.isfinite(row["tail64_avg_logprob"])
+    assert abs(row["completion_avg_logprob"] - (-0.3)) < 1e-9
+    assert abs(row["completion_sum_logprob"] - (-1.5)) < 1e-9
+    assert abs(row["prompt_sum_logprob"] - (-4.0)) < 1e-9
 
 
 @pytest.fixture
@@ -69,7 +75,10 @@ def synthetic_df():
                     "prompt_perplexity": float(rng.uniform(5.0, 20.0)),
                     "logprob_min": float(rng.uniform(-5.0, -0.5)),
                     "logprob_iqr": float(rng.uniform(0.0, 1.0)),
-                    "tail64_avg_logprob": float(rng.uniform(-2.0, -0.1)),
+                    "tail64_avg_logprob":    float(rng.uniform(-2.0, -0.1)),
+                    "completion_avg_logprob": float(rng.uniform(-2.0, -0.1)),
+                    "completion_sum_logprob": float(rng.uniform(-500.0, -10.0)),
+                    "prompt_sum_logprob":     float(rng.uniform(-300.0, -5.0)),
                 })
     return pd.DataFrame(rows)
 

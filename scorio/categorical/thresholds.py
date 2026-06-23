@@ -29,13 +29,11 @@ SIGNAL_TO_COLUMN: dict[str, str] = {
     "Lp_min":  "logprob_min",
     "Lp_iqr":  "logprob_iqr",
     # ── schemas.py (COLM-style) aliases ───────────────────────────
-    # These map the signal IDs used in _SCHEMA_REGISTRY to the
-    # closest available io.py columns.
-    "C1":     "tail64_avg_logprob",   # completion avg logprob proxy
-    "T_lp_min": "logprob_min",        # same concept as Lp_min
-    "P2":     "prompt_perplexity",    # prompt ppl ≈ prompt perplexity
-    "P3":     "prompt_perplexity",    # no sum-logprob in io.py; ppl is best proxy
-    "C3":     "completion_length",    # completion logprob-total proxy
+    "C1":     "completion_avg_logprob",  # mean log P(token) over all completion tokens
+    "T_lp_min": "logprob_min",           # same concept as Lp_min
+    "P2":     "prompt_perplexity",       # prompt ppl ≈ prompt perplexity
+    "P3":     "prompt_sum_logprob",      # Σ log P(token) over all prompt tokens
+    "C3":     "completion_sum_logprob",  # Σ log P(token) over all completion tokens
     "Lp_tail": "tail64_avg_logprob",
     # ── optional outcome reward models ────────────────────────────
     "O1": "acemath_orm",

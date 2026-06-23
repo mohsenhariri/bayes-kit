@@ -11,9 +11,12 @@ Expected record format (the raw inference output):
         "num_completion_tokens": 22818  # → completion_length
       },
       "tokens": {
-        "completion_ppl": 1.09,         # → completion_perplexity
-        "prompt_ppl": 70.38,            # → prompt_perplexity
-        "completion_logprob_list": [...] # → logprob_min / logprob_iqr / tail64_avg_logprob
+        "completion_avg_logprob": -0.09,   # → completion_avg_logprob (C1)
+        "completion_sum_logprob": -2069.7, # → completion_sum_logprob (C3)
+        "completion_ppl": 1.09,            # → completion_perplexity
+        "prompt_sum_logprob": -484.9,      # → prompt_sum_logprob     (P3)
+        "prompt_ppl": 70.38,               # → prompt_perplexity
+        "completion_logprob_list": [...]   # → logprob_min / logprob_iqr / tail64_avg_logprob
       },
       "processed_results": {
         "is_correct": 0,
@@ -66,22 +69,25 @@ def _extract_row(rec: dict, source_file: str) -> dict:
     arr = np.asarray(lp_list, dtype=np.float64) if lp_list else np.array([], dtype=np.float64)
 
     return {
-        "source_file":           source_file,
-        "model":                 rec.get("model"),
-        "problem":               rec.get("data_id"),
-        "trial":                 rec.get("seed"),
-        "is_correct":            pr.get("is_correct"),
-        "has_box":               pr.get("has_box"),
-        "hit_max_len":           int(out.get("finish_reason") == "length"),
-        "completion_length":     out.get("num_completion_tokens"),
-        "completion_perplexity": tok.get("completion_ppl"),
-        "prompt_perplexity":     tok.get("prompt_ppl"),
-        "logprob_min":           float(arr.min())                                          if arr.size else None,
-        "logprob_iqr":           float(np.percentile(arr, 75) - np.percentile(arr, 25))   if arr.size else None,
-        "tail64_avg_logprob":    float(arr[-64:].mean())                                   if arr.size else None,
-        "acemath_orm":           None,
-        "skywork_orm":           None,
-        "verifier_pA":           None,
+        "source_file":              source_file,
+        "model":                    rec.get("model"),
+        "problem":                  rec.get("data_id"),
+        "trial":                    rec.get("seed"),
+        "is_correct":               pr.get("is_correct"),
+        "has_box":                  pr.get("has_box"),
+        "hit_max_len":              int(out.get("finish_reason") == "length"),
+        "completion_length":        out.get("num_completion_tokens"),
+        "completion_perplexity":    tok.get("completion_ppl"),
+        "prompt_perplexity":        tok.get("prompt_ppl"),
+        "logprob_min":              float(arr.min())                                        if arr.size else None,
+        "logprob_iqr":              float(np.percentile(arr, 75) - np.percentile(arr, 25)) if arr.size else None,
+        "tail64_avg_logprob":       float(arr[-64:].mean())                                 if arr.size else None,
+        "completion_avg_logprob":   tok.get("completion_avg_logprob"),
+        "completion_sum_logprob":   tok.get("completion_sum_logprob"),
+        "prompt_sum_logprob":       tok.get("prompt_sum_logprob"),
+        "acemath_orm":              None,
+        "skywork_orm":              None,
+        "verifier_pA":              None,
     }
 
 

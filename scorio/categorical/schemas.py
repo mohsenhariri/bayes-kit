@@ -109,21 +109,27 @@ _register("Difficulty-Adjusted Correctness", ["P2", "R1"], _cls_2_2)
 
 
 # IO Ratio Profile -> P3 x C3 x R1
+#
+# P3 = prompt_sum_logprob  (Σ log P over prompt tokens; always negative)
+# C3 = completion_sum_logprob  (Σ log P over completion tokens; always negative)
+#
+# "high" = above corpus median (less negative) → brief and/or familiar sequence
+# "low"  = below corpus median (more negative) → extended and/or surprising sequence
 def _cls_3_18(
     lvl: dict[str, str], val: dict[str, float | None], th: Thresholds
 ) -> tuple[str, str, float]:
-    """Classify prompt-to-completion length ratio against correctness."""
+    """Classify prompt and completion log-probability totals against correctness."""
     p3, c3, r1 = lvl.get("P3", "low"), lvl.get("C3", "low"), lvl.get("R1", "0")
     if p3 == "low" and c3 == "high" and r1 == "1":
-        return ("Insightful Compression", "Complex prompt, short completion, correct.", 1.0)
+        return ("Insightful Compression", "High-surprisal prompt, brief confident completion, correct.", 1.0)
     if p3 == "high" and c3 == "low" and r1 == "1":
-        return ("Appropriate Expansion", "Short prompt, long completion, correct.", 0.8)
+        return ("Appropriate Expansion", "Familiar prompt, extended or uncertain completion, correct.", 0.8)
     if p3 == "low" and c3 == "low" and r1 == "0":
-        return ("Complex Problem, Wasted Effort", "Complex, long, wrong.", 0.1)
+        return ("Complex Problem, Wasted Effort", "High-surprisal prompt, extended uncertain completion, wrong.", 0.1)
     if p3 == "high" and c3 == "high" and r1 == "1":
-        return ("Proportional IO", "Simple prompt, concise answer, correct.", 0.8)
+        return ("Proportional IO", "Familiar prompt, brief confident completion, correct.", 0.8)
     if p3 == "high" and c3 == "high" and r1 == "0":
-        return ("Simple Problem, Brief Failure", "Simple prompt, brief wrong answer.", 0.2)
+        return ("Simple Problem, Brief Failure", "Familiar prompt, brief confident completion, wrong.", 0.2)
     return ("Mixed IO Profile", "P3={}, C3={}, R1={}.".format(p3, c3, r1),
             0.5 if r1 == "1" else 0.2)
 

@@ -102,17 +102,17 @@ Continuous signals are discretized into `"high"` / `"low"` levels before being p
 
 **Signals:** Prompt Total Log-Probability, Completion Total Log-Probability, Correctness
 
-**Purpose:** Compares how much the model expanded (or compressed) from prompt to completion relative to correctness. A short prompt with a long correct completion suggests appropriate elaboration; a long, complex prompt with a short correct completion suggests efficient reasoning. Mismatched ratios paired with incorrect answers indicate wasted or insufficient effort.
+**Purpose:** Compares the total log-likelihood of the prompt and completion against correctness. Low Prompt Total Log-Probability signals high total prompt surprisal as the prompt was long or unfamiliar to the model. Low Completion Total Log-Probability signals high total completion surprisal as the completion was extended or uncertain. High values indicate the opposite: a brief or highly predictable sequence. The schema identifies whether the model's surprisal profile matches efficient, well-calibrated generation.
 
 | Category | Condition | Justification |
 |----------|-----------|---------------|
-| Insightful Compression | low p_t_lp, high c_t_lp, correct | Complex prompt handled with a long, thorough completion and correct. High inference efficiency. |
-| Appropriate Expansion | high p_t_lp, low c_t_lp, correct | Simple prompt answered concisely and correctly. Good proportionality. |
-| Proportional IO | high p_t_lp, high c_t_lp, correct | Brief prompt with a brief correct answer. |
-| Mixed IO Profile | correct | Correct but with an atypical IO ratio. Partial credit for the correct answer. |
-| Simple Problem, Brief Failure | high p_t_lp, high c_t_lp, incorrect | Simple prompt produced a brief wrong answer. |
-| Complex Problem, Wasted Effort | low p_t_lp, low c_t_lp, incorrect | Hard prompt, long completion, still wrong. |
-| Mixed IO Profile  | incorrect | Incorrect with an atypical IO ratio. |
+| Insightful Compression | low p_t_lp, high c_t_lp, correct | High-surprisal prompt handled with a brief, confident completion, and correct. High inference efficiency. |
+| Appropriate Expansion | high p_t_lp, low c_t_lp, correct | Familiar prompt produced an extended or uncertain completion, still correct. Good proportionality. |
+| Proportional IO | high p_t_lp, high c_t_lp, correct | Familiar prompt with a brief, confident correct answer. |
+| Mixed IO Profile | correct | Correct but with an atypical surprisal profile. Partial credit for the correct answer. |
+| Simple Problem, Brief Failure | high p_t_lp, high c_t_lp, incorrect | Familiar prompt produced a brief wrong answer. |
+| Complex Problem, Wasted Effort | low p_t_lp, low c_t_lp, incorrect | High-surprisal prompt, extended uncertain completion, still wrong. |
+| Mixed IO Profile  | incorrect | Incorrect with an atypical surprisal profile. |
 
 **Weight vector:** `[1.0, 0.5, 0.25, 0.0, 0.0, 0.5/0.2]`. The IO Ratio schema has five categories plus two weighted fallbacks for mixed-ratio cases. The 0.5 fallback for correct mixed-ratio attempts and 0.2 for incorrect mixed-ratio attempts encode the asymmetry between correctness and IO-ratio mismatch.
 
