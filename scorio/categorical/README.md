@@ -1,4 +1,4 @@
-# Categorical Evaluation — `scorio.categorical`
+# Categorical Evaluation `scorio.categorical`
 ---
 
 ## Overview
@@ -11,7 +11,7 @@ $$
 
 where $w_c$ is the category weight, $n_{\alpha,c}$ is the category count, and a uniform Dirichlet prior $\text{Dir}(\alpha_0 = \ldots = \alpha_C = 1)$ is used throughout.
 
-All five schemas in this module are **base-signal schemas**: they require only runtime observables (completion log-probabilities, format indicators) and a binary correctness label — no external verifier or reward model.
+All five schemas in this module are **base-signal schemas**: they require only runtime observables (completion log-probabilities, format indicators) and a binary correctness label.
 
 ---
 
@@ -38,12 +38,12 @@ Continuous signals are discretized into `"high"` / `"low"` levels before being p
 
 | Category | Condition | Justification |
 |----------|-----------|---------------|
-| Confident & Correct | high C1, correct | Ideal: the model committed and was right. Full credit. |
-| Lucky or Cautious | low C1, correct | Correct but uncertain: could reflect over-hedging or genuine difficulty. Partial credit — the answer is right but the model did not clearly know it. |
-| Uncertain & Wrong | low C1, incorrect | Expected failure mode: the model signalled uncertainty and was wrong. Less informative about a systematic problem. |
-| Confidently Wrong | high C1, incorrect | Most dangerous: the model was fluent and committed but wrong. Near-zero score to heavily penalise miscalibration. |
+| Confident & Correct | high confidence, correct | Ideal: the model committed and was right. |
+| Lucky or Cautious | low confidence, correct | Correct but uncertain: could reflect over-hedging or difficulty. |
+| Uncertain & Wrong | low confidence, incorrect | Expected failure mode: the model signalled uncertainty and was wrong. Less informative about a systematic problem. |
+| Confidently Wrong | high confidence, incorrect | Most dangerous: the model was fluent and committed but wrong. |
 
-**Weight vector:** `[1.0, 0.5, 0.5, 0.0]` (Cat 1 through Cat 4, ordered: Confident & Correct, Lucky or Cautious, Uncertain & Wrong, Confidently Wrong). The symmetric 0.5 for the two uncertain outcomes reflects that neither uncertain-correct nor uncertain-wrong is strongly penalised relative to each other, while confidently-wrong receives near-zero.
+**Weight vector:** `[1.0, 0.5, 0.5, 0.0]` The symmetric 0.5 for the two uncertain outcomes reflects that neither uncertain-correct nor uncertain-wrong is strongly penalised relative to each other, while confidently-wrong receives near-zero.
 
 ---
 
@@ -68,7 +68,7 @@ Continuous signals are discretized into `"high"` / `"low"` levels before being p
 
 **Signals:** has_boxed, Correctness
 
-**Purpose:** Isolates format compliance from mathematical failures. A model can produce a correct derivation but fail to place the answer in the required `\boxed{}` format, causing an extractor to mark it wrong. 
+**Purpose:** Isolates format compliance from mathematical failures. A model can produce a correct derivation but fail to place the answer in the required `\boxed{}` format. 
 
 | Category | Condition | Justification |
 |----------|-----------|---------------|
@@ -89,12 +89,12 @@ Continuous signals are discretized into `"high"` / `"low"` levels before being p
 
 | Category | Condition | Justification |
 |----------|-----------|---------------|
-| Hard Problem Solved | low P2, correct | The prompt was challenging relative to the model's prior, yet the model succeeded. |
-| Easy Problem Solved | high P2, correct | Correct on a predictable prompt. |
-| Hard Problem Failed | low P2, incorrect | Failed a hard prompt. |
-| Easy Problem Failed | high P2, incorrect | Failed a prompt that was well within the model's distribution. |
+| Hard Problem Solved | low p_avg_lp, correct | The prompt was challenging relative to the model's prior, yet the model succeeded. |
+| Easy Problem Solved | high p_avg_lp, correct | Correct on a predictable prompt. |
+| Hard Problem Failed | low p_avg_lp, incorrect | Failed a hard prompt. |
+| Easy Problem Failed | high p_avg_lp, incorrect | Failed a prompt that was well within the model's distribution. |
 
-**Weight vector:** `[1.0, 0.75, 0.5, 0.0]`. This is the only base-signal schema with a non-uniform spacing between partial-credit categories. The 0.75 for easy-correct and 0.5 for hard-incorrect reflect the asymmetric signal value: an easy correct answer is more expected than a hard failure.
+**Weight vector:** `[1.0, 0.75, 0.5, 0.0]`. The 0.75 for easy-correct and 0.5 for hard-incorrect reflect the asymmetric signal value: an easy correct answer is more expected than a hard failure.
 
 ---
 
@@ -106,12 +106,12 @@ Continuous signals are discretized into `"high"` / `"low"` levels before being p
 
 | Category | Condition | Justification |
 |----------|-----------|---------------|
-| Insightful Compression | low P3, high C3, correct | Complex prompt handled with a long, thorough completion and correct. High inference efficiency. |
-| Appropriate Expansion | high P3, low C3, correct | Simple prompt answered concisely and correctly. Good proportionality. |
-| Proportional IO | high P3, high C3, correct | Brief prompt with a brief correct answer. |
+| Insightful Compression | low p_t_lp, high c_t_lp, correct | Complex prompt handled with a long, thorough completion and correct. High inference efficiency. |
+| Appropriate Expansion | high p_t_lp, low c_t_lp, correct | Simple prompt answered concisely and correctly. Good proportionality. |
+| Proportional IO | high p_t_lp, high c_t_lp, correct | Brief prompt with a brief correct answer. |
 | Mixed IO Profile | correct | Correct but with an atypical IO ratio. Partial credit for the correct answer. |
-| Simple Problem, Brief Failure | high P3, high C3, incorrect | Simple prompt produced a brief wrong answer. |
-| Complex Problem, Wasted Effort | low P3, low C3, incorrect | Hard prompt, long completion, still wrong. |
+| Simple Problem, Brief Failure | high p_t_lp, high c_t_lp, incorrect | Simple prompt produced a brief wrong answer. |
+| Complex Problem, Wasted Effort | low p_t_lp, low c_t_lp, incorrect | Hard prompt, long completion, still wrong. |
 | Mixed IO Profile  | incorrect | Incorrect with an atypical IO ratio. |
 
 **Weight vector:** `[1.0, 0.5, 0.25, 0.0, 0.0, 0.5/0.2]`. The IO Ratio schema has five categories plus two weighted fallbacks for mixed-ratio cases. The 0.5 fallback for correct mixed-ratio attempts and 0.2 for incorrect mixed-ratio attempts encode the asymmetry between correctness and IO-ratio mismatch.
