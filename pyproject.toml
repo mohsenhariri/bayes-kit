@@ -45,7 +45,9 @@ Issues = "https://github.com/mohsenhariri/scorio/issues"
 Documentation = "https://scorio.readthedocs.io/"
 
 [project.optional-dependencies]
+categorical = ["pandas>=1.5"]
 dev = [
+    "pandas>=1.5",
     "pytest>=9.0.2",
     "ruff>=0.9.0",
     "mypy>=1.18.1",
