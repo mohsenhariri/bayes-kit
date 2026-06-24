@@ -257,7 +257,7 @@ def load_records(
         with ProcessPoolExecutor(max_workers=n_workers) as pool:
             futures = {pool.submit(_process_file, fp): fp for fp in files}
             for future in as_completed(futures):
-                res: FileResult = future.result()
+                res = future.result()
                 _handle_result(res, all_rows)
                 if res.error:
                     failed += 1

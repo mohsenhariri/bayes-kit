@@ -103,7 +103,9 @@ class Thresholds:
             t.q75[sig_id] = float(np.percentile(arr, 75))
             t.means[sig_id] = float(np.mean(arr))
             # ddof=1 to match pandas Series.std() (sample standard deviation).
-            t.stds[sig_id] = float(np.std(arr, ddof=1)) if arr.size > 1 else float("nan")
+            t.stds[sig_id] = (
+                float(np.std(arr, ddof=1)) if arr.size > 1 else float("nan")
+            )
         return t
 
 
