@@ -9,7 +9,6 @@ import json
 import math
 
 import numpy as np
-import pandas as pd
 import pytest
 
 from scorio.categorical import load_records
@@ -58,16 +57,21 @@ _NO_PROMPT_SUM_RECORD = {
 # ── shared fixtures ───────────────────────────────────────────────────
 
 
+def _first_row(columns) -> dict:
+    """Materialise row 0 of a columns dict as a plain ``{col: value}`` dict."""
+    return {k: v[0] for k, v in columns.items()}
+
+
 @pytest.fixture
 def loaded_row(tmp_path):
     (tmp_path / "out.jsonl").write_text(json.dumps(_FULL_RECORD) + "\n")
-    return load_records(tmp_path).iloc[0]
+    return _first_row(load_records(tmp_path))
 
 
 @pytest.fixture
 def loaded_row_no_prompt(tmp_path):
     (tmp_path / "out.jsonl").write_text(json.dumps(_NO_PROMPT_SUM_RECORD) + "\n")
-    return load_records(tmp_path).iloc[0]
+    return _first_row(load_records(tmp_path))
 
 
 # ── io column value tests ─────────────────────────────────────────────
@@ -101,49 +105,49 @@ def test_prompt_sum_nan_when_absent(loaded_row_no_prompt):
 # ── Thresholds signal-mapping tests ──────────────────────────────────
 
 
-def _make_threshold_df(n: int = 20, seed: int = 0) -> pd.DataFrame:
+def _make_threshold_columns(n: int = 20, seed: int = 0) -> dict:
     rng = np.random.default_rng(seed)
-    return pd.DataFrame({
+    return {
         "completion_avg_logprob": rng.uniform(-2.0, -0.1, n),
         "completion_sum_logprob": rng.uniform(-500.0, -10.0, n),
         "prompt_sum_logprob":     rng.uniform(-300.0, -5.0, n),
-    })
+    }
 
 
 def test_thresholds_c1_median_populated():
-    df = _make_threshold_df()
-    t = Thresholds.from_dataframe(df)
+    cols = _make_threshold_columns()
+    t = Thresholds.from_columns(cols)
     assert "C1" in t.medians
-    assert abs(t.medians["C1"] - float(df["completion_avg_logprob"].median())) < 1e-9
+    assert abs(t.medians["C1"] - float(np.median(cols["completion_avg_logprob"]))) < 1e-9
 
 
 def test_thresholds_c3_median_populated():
-    df = _make_threshold_df()
-    t = Thresholds.from_dataframe(df)
+    cols = _make_threshold_columns()
+    t = Thresholds.from_columns(cols)
     assert "C3" in t.medians
-    assert abs(t.medians["C3"] - float(df["completion_sum_logprob"].median())) < 1e-9
+    assert abs(t.medians["C3"] - float(np.median(cols["completion_sum_logprob"]))) < 1e-9
 
 
 def test_thresholds_p3_median_populated():
-    df = _make_threshold_df()
-    t = Thresholds.from_dataframe(df)
+    cols = _make_threshold_columns()
+    t = Thresholds.from_columns(cols)
     assert "P3" in t.medians
-    assert abs(t.medians["P3"] - float(df["prompt_sum_logprob"].median())) < 1e-9
+    assert abs(t.medians["P3"] - float(np.median(cols["prompt_sum_logprob"]))) < 1e-9
 
 
 def test_thresholds_c1_not_populated_when_column_absent():
-    df = pd.DataFrame({"completion_sum_logprob": [-100.0, -200.0]})
-    t = Thresholds.from_dataframe(df)
+    cols = {"completion_sum_logprob": np.array([-100.0, -200.0])}
+    t = Thresholds.from_columns(cols)
     assert "C1" not in t.medians
 
 
 def test_thresholds_c3_not_populated_when_column_absent():
-    df = pd.DataFrame({"completion_avg_logprob": [-1.0, -2.0]})
-    t = Thresholds.from_dataframe(df)
+    cols = {"completion_avg_logprob": np.array([-1.0, -2.0])}
+    t = Thresholds.from_columns(cols)
     assert "C3" not in t.medians
 
 
 def test_thresholds_p3_not_populated_when_column_absent():
-    df = pd.DataFrame({"completion_avg_logprob": [-1.0, -2.0]})
-    t = Thresholds.from_dataframe(df)
+    cols = {"completion_avg_logprob": np.array([-1.0, -2.0])}
+    t = Thresholds.from_columns(cols)
     assert "P3" not in t.medians

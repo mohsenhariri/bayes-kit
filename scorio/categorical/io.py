@@ -1,4 +1,4 @@
-"""Load raw per-completion JSONL inference files into a pandas DataFrame.
+"""Load raw per-completion JSONL inference files into a columnar dict.
 
 Expected record format (the raw inference output):
 
@@ -24,7 +24,7 @@ Expected record format (the raw inference output):
       }
     }
 
-The DataFrame produced by :func:`load_records` is consumed by
+The columns dict produced by :func:`load_records` is consumed by
 :mod:`scorio.categorical.thresholds` and :mod:`scorio.categorical.schemas`.
 """
 
@@ -39,9 +39,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
+
+from scorio.categorical._util import Columns, to_float
 
 logger = logging.getLogger(__name__)
+
+# Columns kept as object arrays (identity / labels) rather than coerced to float.
+_NON_NUMERIC = {"model", "problem", "source_file"}
 
 # ── PRM helper ───────────────────────────────────────────────────────
 
@@ -167,11 +171,40 @@ def _process_file(file_path: Path) -> FileResult:
 # ── public API ───────────────────────────────────────────────────────
 
 
+def _rows_to_columns(rows: list[dict]) -> Columns:
+    """Convert a list of flat row dicts into a columns dict of numpy arrays.
+
+    Numeric columns become ``float64`` arrays (missing → ``NaN``); identity
+    columns in :data:`_NON_NUMERIC` become ``object`` arrays.
+    """
+    if not rows:
+        return {}
+
+    keys: list[str] = []
+    seen: set[str] = set()
+    for r in rows:
+        for k in r:
+            if k not in seen:
+                seen.add(k)
+                keys.append(k)
+
+    n = len(rows)
+    columns: Columns = {}
+    for k in keys:
+        if k in _NON_NUMERIC:
+            columns[k] = np.array([r.get(k) for r in rows], dtype=object)
+        else:
+            columns[k] = np.fromiter(
+                (to_float(r.get(k)) for r in rows), dtype=np.float64, count=n
+            )
+    return columns
+
+
 def load_records(
     path: str | Path,
     workers: int | None = None,
-) -> pd.DataFrame:
-    """Load all .jsonl (or .jsonl.gz) files under *path* into a DataFrame.
+) -> Columns:
+    """Load all .jsonl (or .jsonl.gz) files under *path* into a columns dict.
 
     Args:
         path: Path to a single ``.jsonl`` / ``.jsonl.gz`` file, **or** a
@@ -182,8 +215,10 @@ def load_records(
                  to disable multiprocessing.
 
     Returns:
-        A :class:`pandas.DataFrame` with one row per completion.
-        Optional reward-model columns are ``NaN`` when absent from a record.
+        A ``dict[str, np.ndarray]`` mapping column name to a length-N array
+        (one entry per completion).  Numeric columns are ``float64`` (missing
+        values, including optional reward-model columns, are ``NaN``); the
+        ``model``, ``problem`` and ``source_file`` columns are ``object`` arrays.
 
     Raises:
         FileNotFoundError: If *path* does not exist.
@@ -236,15 +271,7 @@ def load_records(
         elapsed,
     )
 
-    df = pd.DataFrame(all_rows)
-
-    # Coerce numeric columns to proper dtypes
-    _non_numeric = {"model", "problem", "source_file"}
-    for col in df.columns:
-        if col not in _non_numeric and df[col].dtype == object:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    return df
+    return _rows_to_columns(all_rows)
 
 
 def _handle_result(res: FileResult, all_rows: list[dict]) -> None:

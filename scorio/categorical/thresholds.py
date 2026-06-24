@@ -1,6 +1,6 @@
-"""Per-signal thresholds computed from a pooled reference DataFrame.
+"""Per-signal thresholds computed from a pooled reference corpus.
 
-Thresholds are computed once on the full corpus (via :meth:`Thresholds.from_dataframe`)
+Thresholds are computed once on the full corpus (via :meth:`Thresholds.from_columns`)
 and then used by :mod:`scorio.categorical.schemas` to discretise continuous signal
 values into levels before category assignment.
 """
@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-import pandas as pd
+import numpy as np
+
+from scorio.categorical._util import Columns, is_missing, to_float
 
 # ── Signal catalogue ─────────────────────────────────────────────────
 #
@@ -58,7 +60,7 @@ BINARY_SIGNALS: frozenset[str] = frozenset({"R1", "R2", "R3"})
 
 @dataclass
 class Thresholds:
-    """Per-signal thresholds computed from a reference DataFrame.
+    """Per-signal thresholds computed from a reference columns dict.
 
     For continuous signals the median (and optionally quartiles, mean, std)
     are derived from the pooled corpus.  For binary signals the threshold
@@ -72,46 +74,51 @@ class Thresholds:
     stds: dict[str, float] = field(default_factory=dict)
 
     @classmethod
-    def from_dataframe(cls, df: pd.DataFrame) -> Thresholds:
-        """Compute thresholds from a pooled corpus DataFrame.
+    def from_columns(cls, columns: Columns) -> Thresholds:
+        """Compute thresholds from a pooled corpus columns dict.
 
         Args:
-            df: DataFrame returned by :func:`scorio.categorical.io.load_records`.
+            columns: ``dict[str, np.ndarray]`` returned by
+                :func:`scorio.categorical.io.load_records`.
 
         Returns:
             A :class:`Thresholds` instance populated for every signal whose
-            column is present in *df*.  Missing columns are silently skipped.
+            column is present in *columns*.  Missing columns are silently skipped.
         """
         t = cls()
         for sig_id, col in SIGNAL_TO_COLUMN.items():
-            if col not in df.columns:
+            if col not in columns:
                 continue
             if sig_id in BINARY_SIGNALS:
                 t.medians[sig_id] = 0.5
                 continue
-            series = pd.to_numeric(df[col], errors="coerce").dropna()
-            if len(series) == 0:
+            arr = np.asarray(columns[col])
+            if arr.dtype != np.float64:
+                arr = np.array([to_float(v) for v in arr], dtype=np.float64)
+            arr = arr[np.isfinite(arr)]
+            if arr.size == 0:
                 continue
-            t.medians[sig_id] = float(series.median())
-            t.q25[sig_id] = float(series.quantile(0.25))
-            t.q75[sig_id] = float(series.quantile(0.75))
-            t.means[sig_id] = float(series.mean())
-            t.stds[sig_id] = float(series.std())
+            t.medians[sig_id] = float(np.median(arr))
+            t.q25[sig_id] = float(np.percentile(arr, 25))
+            t.q75[sig_id] = float(np.percentile(arr, 75))
+            t.means[sig_id] = float(np.mean(arr))
+            # ddof=1 to match pandas Series.std() (sample standard deviation).
+            t.stds[sig_id] = float(np.std(arr, ddof=1)) if arr.size > 1 else float("nan")
         return t
 
 
 # ── Signal extraction helpers ────────────────────────────────────────
 
 
-def _get_signal_value(row: pd.Series, signal_id: str) -> float | None:
-    """Extract the numeric value for a signal from a DataFrame row."""
+def _get_signal_value(columns: Columns, idx: int, signal_id: str) -> float | None:
+    """Extract the numeric value for a signal from row *idx* of a columns dict."""
     col = SIGNAL_TO_COLUMN.get(signal_id)
-    if col is None or col not in row.index:
+    if col is None or col not in columns:
         return None
-    v = row[col]
-    if pd.isna(v):
+    v = to_float(columns[col][idx])
+    if is_missing(v):
         return None
-    return float(v)
+    return v
 
 
 def _classify_signal(signal_id: str, value: float, thresholds: Thresholds) -> str:

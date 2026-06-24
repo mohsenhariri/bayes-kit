@@ -1,10 +1,11 @@
 import json
 
 import numpy as np
-import pandas as pd
 import pytest
 
 from scorio.categorical import evaluate_all, load_records
+from scorio.categorical.io import _rows_to_columns
+from scorio.categorical._util import num_rows
 from scorio.categorical.schemas import _SCHEMA_REGISTRY
 
 # ── raw-format fixture ────────────────────────────────────────────────
@@ -35,10 +36,10 @@ _RAW_RECORD = {
 
 def test_load_records_raw_format(tmp_path):
     (tmp_path / "out.jsonl").write_text(json.dumps(_RAW_RECORD) + "\n")
-    df = load_records(tmp_path)
+    columns = load_records(tmp_path)
 
-    assert len(df) == 1
-    row = df.iloc[0]
+    assert num_rows(columns) == 1
+    row = {k: v[0] for k, v in columns.items()}
     assert row["problem"] == 6
     assert row["trial"] == 1261
     assert row["model"] == "test/model"
@@ -57,7 +58,7 @@ def test_load_records_raw_format(tmp_path):
 
 
 @pytest.fixture
-def synthetic_df():
+def synthetic_columns():
     rng = np.random.default_rng(42)
     rows = []
     for model in ["model_A", "model_B"]:
@@ -80,11 +81,11 @@ def synthetic_df():
                     "completion_sum_logprob": float(rng.uniform(-500.0, -10.0)),
                     "prompt_sum_logprob":     float(rng.uniform(-300.0, -5.0)),
                 })
-    return pd.DataFrame(rows)
+    return _rows_to_columns(rows)
 
 
-def test_evaluate_all_returns_expected_structure(synthetic_df):
-    results = evaluate_all(synthetic_df)
+def test_evaluate_all_returns_expected_structure(synthetic_columns):
+    results = evaluate_all(synthetic_columns)
     assert isinstance(results, dict)
     for cid, model_map in results.items():
         assert isinstance(model_map, dict)
@@ -94,13 +95,13 @@ def test_evaluate_all_returns_expected_structure(synthetic_df):
             assert sigma >= 0.0
 
 
-def test_evaluate_all_covers_all_schemas(synthetic_df):
-    results = evaluate_all(synthetic_df)
+def test_evaluate_all_covers_all_schemas(synthetic_columns):
+    results = evaluate_all(synthetic_columns)
     assert set(results.keys()) == set(_SCHEMA_REGISTRY.keys())
 
 
-def test_evaluate_all_covers_both_models(synthetic_df):
-    results = evaluate_all(synthetic_df)
+def test_evaluate_all_covers_both_models(synthetic_columns):
+    results = evaluate_all(synthetic_columns)
     for cid, model_map in results.items():
         assert "model_A" in model_map
         assert "model_B" in model_map
