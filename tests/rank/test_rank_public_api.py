@@ -133,6 +133,14 @@ def test_public_rank_api_exports_have_valid_smoke_calls(
             max_iter=60,
             return_scores=True,
         ),
+        "mirt": lambda: rank.mirt(
+            ordered_binary_small_R,
+            n_factors=2,
+            n_quadrature=7,
+            em_iter=10,
+            max_iter=30,
+            return_scores=True,
+        ),
         # Graph / seriation / hodge
         "pagerank": lambda: rank.pagerank(ordered_binary_small_R, return_scores=True),
         "spectral": lambda: rank.spectral(ordered_binary_small_R, return_scores=True),

@@ -50,7 +50,8 @@ Voting methods: `borda`, `copeland`, `win_rate`, `minimax`, `schulze`,
 `ranked_pairs`, `kemeny_young`, `nanson`, `baldwin`, `majority_judgment`.
 
 Item Response Theory: `rasch`, `rasch_map`, `rasch_2pl`, `rasch_2pl_map`,
-`rasch_3pl`, `rasch_3pl_map`, `rasch_mml`, `rasch_mml_credible`, `dynamic_irt`.
+`rasch_3pl`, `rasch_3pl_map`, `rasch_mml`, `rasch_mml_credible`, `dynamic_irt`,
+`mirt` (compensatory multidimensional IRT).
 
 Graph-based: `pagerank`, `spectral`, `rank_centrality`, `alpharank`, `nash`.
 
@@ -107,6 +108,7 @@ from .hodge_rank import hodge_rank
 # Item Response Theory
 from .irt import (
     dynamic_irt,
+    mirt,
     rasch,
     rasch_2pl,
     rasch_2pl_map,
@@ -216,6 +218,7 @@ __all__ = [
     "rasch_mml",
     "rasch_mml_credible",
     "dynamic_irt",
+    "mirt",
     # Graph
     "pagerank",
     "spectral",

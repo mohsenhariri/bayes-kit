@@ -43,6 +43,7 @@ from ._base import sigmoid, validate_input
 from ._types import RankMethod, RankResult
 from .priors import GaussianPrior, Prior
 
+MirtModel: TypeAlias = Literal["2pl", "3pl"]
 DynamicIrtVariant: TypeAlias = Literal["linear", "growth", "state_space"]
 DynamicScoreTargetInput: TypeAlias = Literal[
     "initial",
@@ -1571,6 +1572,188 @@ def rasch_mml_credible(
     return (ranking, scores) if return_scores else ranking
 
 
+def mirt(
+    R: np.ndarray,
+    n_factors: int = 2,
+    model: MirtModel = "2pl",
+    method: RankMethod = "competition",
+    return_scores: bool = False,
+    max_iter: int = 50,
+    em_iter: int = 100,
+    n_quadrature: int = 15,
+    fix_guessing: float | None = None,
+    reg_discrimination: float = 0.01,
+    reg_guessing: float = 0.1,
+    guessing_upper: float = 0.5,
+    tol: float = 1e-4,
+    return_item_params: bool = False,
+) -> (
+    np.ndarray
+    | tuple[np.ndarray, np.ndarray]
+    | tuple[np.ndarray, np.ndarray, dict[str, np.ndarray]]
+):
+    r"""
+    Rank models with compensatory multidimensional IRT (MIRT) via MML-EM.
+
+    Method context:
+        Each model ``l`` has a ``D``-dimensional latent ability vector
+        ``theta_l`` (``D = n_factors``) and each question ``m`` has a slope
+        (discrimination) vector ``a_m`` and intercept ``d_m``. The compensatory
+        dichotomous model is
+
+        .. math::
+            P(R_{lmn}=1\mid\theta_l)
+            = c_m + (1-c_m)\,\sigma\!\left(a_m^{\top}\theta_l + d_m\right),
+
+        with ``c_m=0`` for ``model="2pl"`` and an item pseudo-guessing lower
+        asymptote for ``model="3pl"``. Item slopes and intercepts are estimated
+        by marginal maximum likelihood with a Bock-Aitkin EM algorithm,
+        integrating abilities over a standard multivariate-normal population
+        prior on a product Gauss-Hermite quadrature grid. Per-model abilities
+        are then summarized by their expected a posteriori (EAP) values.
+
+    Ranking score:
+        Multidimensional abilities are collapsed to a scalar via the
+        rotation-invariant *reference composite* - the projection of each
+        ability vector onto the mean item-slope direction
+        ``a_bar = (1/M) sum_m a_m``:
+
+        .. math::
+            s_l = a_{\mathrm{bar}}^{\top}\theta_l.
+
+        Because the compensatory model is invariant to an orthogonal rotation
+        ``theta \mapsto Q\theta``, ``a \mapsto Qa``, this composite is
+        well-defined without fixing an (otherwise arbitrary) factor rotation.
+        The full per-dimension abilities are available via
+        ``return_item_params``.
+
+    Args:
+        R: Binary outcome tensor with shape ``(L, M, N)`` or matrix
+            ``(L, M)`` (treated as ``N=1``).
+        n_factors: Number of latent ability dimensions ``D`` (``>= 1``).
+        model: ``"2pl"`` (no guessing) or ``"3pl"`` (item pseudo-guessing).
+        method: Tie-handling rule passed to :func:`scorio.utils.rank_scores`.
+        return_scores: If ``True``, return ``(ranking, scores)``.
+        max_iter: Positive maximum L-BFGS iterations per EM M-step.
+        em_iter: Positive maximum number of EM iterations.
+        n_quadrature: Gauss-Hermite nodes per dimension (integer ``>= 2``). The
+            product grid has ``n_quadrature ** n_factors`` nodes, so keep
+            ``n_factors`` small.
+        fix_guessing: Only valid for ``model="3pl"``. If provided, fixes the
+            guessing parameter to this value for all questions; must lie in
+            ``[0, guessing_upper]``. Otherwise guessing is estimated.
+        reg_discrimination: Non-negative L2 (ridge) penalty on slope vectors.
+        reg_guessing: Non-negative L2 penalty on guessing logits (3PL only).
+        guessing_upper: Upper bound for item guessing ``c_m`` in ``(0, 1)``.
+        tol: Non-negative convergence tolerance on the maximum item-parameter
+            change between EM iterations. Set ``0.0`` to always run ``em_iter``
+            iterations.
+        return_item_params: If ``True``, also return item/ability parameters.
+            Implies returning scores.
+
+    Returns:
+        Ranking array of shape ``(L,)``.
+        If ``return_scores=True``, also returns reference-composite ability
+        scores (shape ``(L,)``).
+        If ``return_item_params=True``, also returns a dict with
+        ``"difficulty"`` (multidimensional difficulty ``MDIFF``, shape
+        ``(M,)``), ``"discrimination"`` (multidimensional discrimination
+        ``MDISC``, shape ``(M,)``), ``"slopes"`` (``a``, shape ``(M, D)``),
+        ``"intercept"`` (``d``, shape ``(M,)``), ``"abilities"`` (EAP
+        ``theta``, shape ``(L, D)``), ``"ability_sd"`` (posterior SD, shape
+        ``(L, D)``), and, for ``model="3pl"``, ``"guessing"`` (``c``, shape
+        ``(M,)``).
+
+    Notation:
+        ``MDISC_m = ||a_m||_2`` and ``MDIFF_m = -d_m / MDISC_m`` are the
+        multidimensional discrimination and difficulty of item ``m``.
+
+    References:
+        Chalmers, R. P. (2012). mirt: A Multidimensional Item Response Theory
+        Package for the R Environment. Journal of Statistical Software,
+        48(6), 1-29.
+
+        Reckase, M. D. (2009). Multidimensional Item Response Theory. Springer.
+
+        Bock, R. D., & Aitkin, M. (1981). Marginal maximum likelihood
+        estimation of item parameters: Application of an EM algorithm.
+        Psychometrika, 46(4), 443-459.
+
+    Examples:
+        >>> import numpy as np
+        >>> from scorio import rank
+        >>> R = np.array([
+        ...     [[1, 1], [1, 1]],
+        ...     [[0, 0], [0, 0]],
+        ... ])
+        >>> rank.mirt(R, n_factors=1, n_quadrature=7).tolist()
+        [1, 2]
+    """
+    n_factors = _validate_positive_int("n_factors", n_factors, min_value=1)
+    max_iter = _validate_positive_int("max_iter", max_iter)
+    em_iter = _validate_positive_int("em_iter", em_iter)
+    n_quadrature = _validate_positive_int("n_quadrature", n_quadrature, min_value=2)
+    reg_discrimination = _validate_nonnegative_float(
+        "reg_discrimination", reg_discrimination
+    )
+    reg_guessing = _validate_nonnegative_float("reg_guessing", reg_guessing)
+    tol = _validate_nonnegative_float("tol", tol)
+    guessing_upper = _validate_guessing_upper(guessing_upper)
+
+    model_name = str(model).strip().lower()
+    if model_name not in {"2pl", "3pl"}:
+        raise ValueError("model must be '2pl' or '3pl'.")
+    if model_name == "2pl" and fix_guessing is not None:
+        raise ValueError("fix_guessing is only valid for model='3pl'.")
+    fix_guessing = _validate_fix_guessing(fix_guessing, guessing_upper)
+
+    grid_size = int(n_quadrature) ** int(n_factors)
+    if grid_size > 200_000:
+        raise ValueError(
+            f"Product quadrature grid would have {grid_size} nodes "
+            f"(n_quadrature={n_quadrature} ** n_factors={n_factors}). "
+            "Reduce n_factors or n_quadrature; compensatory MML-EM is intended "
+            "for a small number of factors."
+        )
+
+    k_correct, n_trials = _to_binomial_counts(R)
+    _, M = k_correct.shape
+    if n_factors > M:
+        raise ValueError(
+            f"n_factors={n_factors} cannot exceed number of questions M={M}."
+        )
+
+    theta, a, d, c, mdisc, mdiff, theta_sd, scores = _estimate_mirt(
+        k_correct,
+        n_trials,
+        n_factors=n_factors,
+        model=model_name,
+        max_iter=max_iter,
+        em_iter=em_iter,
+        n_quadrature=n_quadrature,
+        fix_guessing=fix_guessing,
+        reg_discrimination=reg_discrimination,
+        reg_guessing=reg_guessing,
+        guessing_upper=guessing_upper,
+        tol=tol,
+    )
+
+    ranking = rank_scores(scores)[method]
+    if return_item_params:
+        params: dict[str, np.ndarray] = {
+            "difficulty": mdiff,
+            "discrimination": mdisc,
+            "slopes": a,
+            "intercept": d,
+            "abilities": theta,
+            "ability_sd": theta_sd,
+        }
+        if model_name == "3pl":
+            params["guessing"] = c
+        return ranking, scores, params
+    return (ranking, scores) if return_scores else ranking
+
+
 def _posterior_sd(posterior: np.ndarray, theta_q: np.ndarray) -> np.ndarray:
     """
     Posterior SD for each row of a discrete posterior over theta_q.
@@ -1712,6 +1895,207 @@ def _estimate_rasch_mml(
     return abilities, beta, posterior, theta_q
 
 
+def _build_product_quadrature(
+    n_factors: int, n_quadrature: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Build a ``D``-dimensional product Gauss-Hermite quadrature grid.
+
+    The 1D Gauss-Hermite nodes/weights are transformed to integrate against a
+    standard normal density (``theta = sqrt(2) x``, weight ``w / sqrt(pi)``),
+    then combined into a product grid over ``D = n_factors`` dimensions.
+
+    Returns:
+        grid: Node coordinates of shape ``(n_quadrature ** D, D)``.
+        log_w: Log product weights of shape ``(n_quadrature ** D,)``.
+    """
+    x_gh, w_gh = np.polynomial.hermite.hermgauss(n_quadrature)
+    nodes_1d = np.sqrt(2.0) * x_gh
+    logw_1d = np.log(w_gh) - 0.5 * np.log(np.pi)
+
+    mesh_nodes = np.meshgrid(*([nodes_1d] * n_factors), indexing="ij")
+    grid = np.stack([m.ravel() for m in mesh_nodes], axis=1)
+
+    log_w = np.zeros(grid.shape[0], dtype=float)
+    for mesh_w in np.meshgrid(*([logw_1d] * n_factors), indexing="ij"):
+        log_w += mesh_w.ravel()
+
+    return grid, log_w
+
+
+def _estimate_mirt(
+    k_correct: np.ndarray,
+    n_trials: int,
+    n_factors: int,
+    model: str,
+    max_iter: int,
+    em_iter: int,
+    n_quadrature: int,
+    fix_guessing: float | None,
+    reg_discrimination: float,
+    reg_guessing: float,
+    guessing_upper: float,
+    tol: float,
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+]:
+    """
+    Estimate a compensatory MIRT model via marginal-MLE EM with EAP scoring.
+
+    Args:
+        k_correct: Shape ``(L, M)`` with correct counts in ``[0, n_trials]``.
+        n_trials: Number of trials per (model, item).
+
+    Returns:
+        Tuple ``(theta, a, d, c, mdisc, mdiff, theta_sd, scores)`` where
+        ``theta`` is ``(L, D)`` EAP abilities, ``a`` is ``(M, D)`` slopes,
+        ``d`` is ``(M,)`` intercepts, ``c`` is ``(M,)`` guessing (zeros for
+        2PL), ``mdisc``/``mdiff`` are ``(M,)`` multidimensional
+        discrimination/difficulty, ``theta_sd`` is ``(L, D)`` posterior SD,
+        and ``scores`` is the ``(L,)`` reference-composite ranking score.
+    """
+    L, M = k_correct.shape
+    D = int(n_factors)
+    estimate_c = model == "3pl" and fix_guessing is None
+    c_fixed = (
+        np.full(M, float(fix_guessing))
+        if (model == "3pl" and fix_guessing is not None)
+        else None
+    )
+
+    grid, log_w = _build_product_quadrature(D, n_quadrature)  # (G, D), (G,)
+    n_incorrect = n_trials - k_correct
+
+    # Initialization: intercepts from item easiness, slopes from the leading
+    # singular directions of the centered logit matrix.
+    p_lm = np.clip((k_correct + 0.5) / (n_trials + 1.0), 1e-6, 1 - 1e-6)
+    z = np.log(p_lm / (1 - p_lm))
+    d = z.mean(axis=0)
+    _, s_sv, vt = np.linalg.svd(z - d[None, :], full_matrices=False)
+    a = np.zeros((M, D), dtype=float)
+    for dd in range(min(D, vt.shape[0])):
+        a[:, dd] = vt[dd, :] * np.sqrt(max(float(s_sv[dd]), 0.0))
+    a = np.clip(a, -3.0, 3.0)
+    gamma = np.zeros(M, dtype=float)  # guessing logits (3PL, estimated)
+
+    def _current_c(gamma_vec: np.ndarray) -> np.ndarray | None:
+        if estimate_c:
+            return guessing_upper * sigmoid(gamma_vec)
+        return c_fixed
+
+    def _probs(
+        a_: np.ndarray, d_: np.ndarray, c_: np.ndarray | None
+    ) -> tuple[np.ndarray, np.ndarray]:
+        lin = grid @ a_.T + d_[None, :]  # (G, M)
+        s = sigmoid(lin)
+        p = s if c_ is None else c_[None, :] + (1.0 - c_[None, :]) * s
+        return np.clip(p, 1e-10, 1 - 1e-10), s
+
+    def _posterior(a_: np.ndarray, d_: np.ndarray, c_: np.ndarray | None) -> np.ndarray:
+        p, _ = _probs(a_, d_, c_)
+        loglik = k_correct @ np.log(p).T + n_incorrect @ np.log1p(-p).T  # (L, G)
+        logpost = loglik + log_w[None, :]
+        logpost -= logpost.max(axis=1, keepdims=True)
+        post = np.exp(logpost)
+        post /= post.sum(axis=1, keepdims=True)
+        return post
+
+    def _mstep(params: np.ndarray, r: np.ndarray, f: np.ndarray):
+        a_ = params[: M * D].reshape(M, D)
+        d_ = params[M * D : M * D + M]
+        if estimate_c:
+            gamma_ = params[M * D + M :]
+            c_: np.ndarray | None = guessing_upper * sigmoid(gamma_)
+        else:
+            c_ = c_fixed
+
+        lin = grid @ a_.T + d_[None, :]
+        s = sigmoid(lin)
+        p = s if c_ is None else c_[None, :] + (1.0 - c_[None, :]) * s
+        p = np.clip(p, 1e-10, 1 - 1e-10)
+
+        # Expected complete-data negative log-likelihood (weighted logistic).
+        nll = -np.sum(r * np.log(p) + (f[:, None] - r) * np.log1p(-p))
+        dnll_dp = (f[:, None] * p - r) / (p * (1.0 - p))  # (G, M)
+        dp_dlin = s * (1.0 - s) if c_ is None else (1.0 - c_[None, :]) * s * (1.0 - s)
+        g_lin = dnll_dp * dp_dlin  # (G, M)
+
+        g_d = g_lin.sum(axis=0)
+        g_a = g_lin.T @ grid  # (M, D)
+        nll += reg_discrimination * np.sum(a_**2)
+        g_a += 2.0 * reg_discrimination * a_
+        grad = np.concatenate([g_a.ravel(), g_d])
+
+        if estimate_c:
+            sig_g = sigmoid(gamma_)
+            g_gamma = (dnll_dp * (1.0 - s)).sum(axis=0) * (
+                guessing_upper * sig_g * (1.0 - sig_g)
+            )
+            nll += reg_guessing * np.sum(gamma_**2)
+            g_gamma += 2.0 * reg_guessing * gamma_
+            grad = np.concatenate([grad, g_gamma])
+
+        return float(nll), grad
+
+    for _ in range(em_iter):
+        # E-step: posterior over the latent grid for each model.
+        post = _posterior(a, d, _current_c(gamma))
+        f = n_trials * post.sum(axis=0)  # (G,) expected attempts per node
+        r = post.T @ k_correct  # (G, M) expected correct per node/item
+
+        # M-step: maximize the expected complete-data likelihood for the
+        # separable item parameters jointly (analytic gradient).
+        x0 = np.concatenate([a.ravel(), d] + ([gamma] if estimate_c else []))
+        result = minimize(
+            _mstep,
+            x0,
+            args=(r, f),
+            jac=True,
+            method="L-BFGS-B",
+            options={"maxiter": max_iter},
+        )
+        a_new = result.x[: M * D].reshape(M, D)
+        d_new = result.x[M * D : M * D + M]
+        gamma_new = result.x[M * D + M :] if estimate_c else gamma
+
+        delta = max(
+            float(np.max(np.abs(a_new - a))),
+            float(np.max(np.abs(d_new - d))),
+            float(np.max(np.abs(gamma_new - gamma))) if estimate_c else 0.0,
+        )
+        a, d, gamma = a_new, d_new, gamma_new
+        if delta < tol:
+            break
+
+    # Final E-step: EAP abilities and posterior SD per dimension.
+    c_final = _current_c(gamma)
+    post = _posterior(a, d, c_final)
+    theta = post @ grid  # (L, D)
+    theta_sd = np.sqrt(np.maximum(post @ (grid**2) - theta**2, 0.0))
+
+    # Orient each latent axis so its mean slope is non-negative (a sign-flip
+    # symmetry of the compensatory model; keeps the composite well-posed).
+    for dd in range(D):
+        if a[:, dd].sum() < 0.0:
+            a[:, dd] *= -1.0
+            theta[:, dd] *= -1.0
+
+    c_out = c_final if c_final is not None else np.zeros(M, dtype=float)
+    mdisc = np.sqrt(np.sum(a**2, axis=1))
+    mdiff = -d / np.maximum(mdisc, 1e-12)
+
+    # Rotation-invariant reference composite for ranking.
+    scores = theta @ a.mean(axis=0)  # (L,)
+    return theta, a, d, c_out, mdisc, mdiff, theta_sd, scores
+
+
 __all__ = [
     "rasch",
     "rasch_map",
@@ -1722,4 +2106,5 @@ __all__ = [
     "rasch_3pl",
     "rasch_3pl_map",
     "dynamic_irt",
+    "mirt",
 ]
