@@ -59,12 +59,97 @@ using Scorio
                 max_iter=80,
                 return_scores=true,
             ),
+            () -> Scorio.Rank.mirt(
+                R_small;
+                n_factors=2,
+                n_quadrature=7,
+                em_iter=25,
+                max_iter=40,
+                tol=1e-3,
+                return_scores=true,
+            ),
         ]
 
         for run in calls
             ranking, _ = assert_ranking_and_scores(run())
             assert_ordering_sanity(ranking; best_idx=1, worst_idx=4)
         end
+    end
+
+    @testset "mirt multidimensional" begin
+        # 3PL with fixed and estimated guessing: smoke + valid ranking/scores.
+        for opts in (
+            (; model="3pl", fix_guessing=0.2),
+            (; model="3pl"),
+            (; n_factors=1, n_quadrature=11),
+        )
+            out = Scorio.Rank.mirt(
+                R_small;
+                n_quadrature=7,
+                em_iter=25,
+                max_iter=40,
+                tol=1e-3,
+                return_scores=true,
+                opts...,
+            )
+            assert_ranking_and_scores(out)
+        end
+
+        # Item parameters: shapes, keys, and non-negativity.
+        L, M, _ = size(R_small)
+        ranking, scores, params = Scorio.Rank.mirt(
+            R_small;
+            n_factors=2,
+            model="3pl",
+            n_quadrature=7,
+            em_iter=25,
+            max_iter=40,
+            tol=1e-3,
+            return_item_params=true,
+        )
+        assert_ranking(ranking)
+        assert_scores(scores; expected_len=L)
+        @test Set(keys(params)) == Set([
+            "difficulty",
+            "discrimination",
+            "slopes",
+            "intercept",
+            "abilities",
+            "ability_sd",
+            "guessing",
+        ])
+        @test size(params["slopes"]) == (M, 2)
+        @test size(params["abilities"]) == (L, 2)
+        @test size(params["ability_sd"]) == (L, 2)
+        @test length(params["difficulty"]) == M
+        @test all(params["discrimination"] .>= 0.0)
+        @test all(params["ability_sd"] .>= 0.0)
+
+        # 2PL item params omit guessing.
+        _, _, params_2pl = Scorio.Rank.mirt(
+            R_small;
+            n_factors=2,
+            model="2pl",
+            n_quadrature=7,
+            em_iter=25,
+            max_iter=40,
+            tol=1e-3,
+            return_item_params=true,
+        )
+        @test Set(keys(params_2pl)) == Set([
+            "difficulty",
+            "discrimination",
+            "slopes",
+            "intercept",
+            "abilities",
+            "ability_sd",
+        ])
+
+        # Validation errors.
+        @test_throws ErrorException Scorio.Rank.mirt(R_small; model="4pl")
+        @test_throws ErrorException Scorio.Rank.mirt(R_small; model="2pl", fix_guessing=0.2)
+        @test_throws ErrorException Scorio.Rank.mirt(R_small; n_factors=12, n_quadrature=15)
+        @test_throws ErrorException Scorio.Rank.mirt(R_small; n_factors=11, n_quadrature=2)
     end
 
     @testset "return_item_params branches" begin

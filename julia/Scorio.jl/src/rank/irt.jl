@@ -1292,3 +1292,309 @@ function rasch_mml_credible(
     ranking = rank_scores(scores)[string(method)]
     return return_scores ? (ranking, scores) : ranking
 end
+
+function _build_product_quadrature(n_factors::Int, n_quadrature::Int)
+    x_gh, w_gh = _hermgauss(n_quadrature)
+    nodes_1d = sqrt(2.0) .* x_gh
+    logw_1d = log.(w_gh) .- 0.5 * log(pi)
+
+    G = n_quadrature^n_factors
+    grid = zeros(Float64, G, n_factors)
+    logw = zeros(Float64, G)
+    idx = ones(Int, n_factors)
+    for g in 1:G
+        acc = 0.0
+        for dcol in 1:n_factors
+            grid[g, dcol] = nodes_1d[idx[dcol]]
+            acc += logw_1d[idx[dcol]]
+        end
+        logw[g] = acc
+        for dcol in 1:n_factors
+            idx[dcol] += 1
+            if idx[dcol] <= n_quadrature
+                break
+            else
+                idx[dcol] = 1
+            end
+        end
+    end
+    return grid, logw
+end
+
+function _estimate_mirt(
+    k_correct,
+    n_trials::Int;
+    n_factors::Int,
+    model::AbstractString,
+    max_iter::Int,
+    em_iter::Int,
+    n_quadrature::Int,
+    fix_guessing,
+    reg_discrimination::Float64,
+    reg_guessing::Float64,
+    guessing_upper::Float64,
+    tol::Float64,
+)
+    L, M = size(k_correct)
+    D = n_factors
+    n_trials_f = Float64(n_trials)
+    estimate_c = model == "3pl" && isnothing(fix_guessing)
+    c_fixed =
+        (model == "3pl" && !isnothing(fix_guessing)) ? fill(Float64(fix_guessing), M) :
+        nothing
+
+    grid, logw = _build_product_quadrature(D, n_quadrature)
+    G = size(grid, 1)
+    n_incorrect = n_trials_f .- k_correct
+
+    # Initialization: intercepts from item easiness, slopes from the leading
+    # singular directions of the centered logit matrix.
+    p_lm = clamp.((k_correct .+ 0.5) ./ (n_trials_f + 1.0), 1e-6, 1.0 - 1e-6)
+    z = log.(p_lm ./ (1.0 .- p_lm))
+    d0 = vec(sum(z; dims=1)) ./ Float64(L)
+    F = svd(z .- transpose(d0))
+    a = zeros(Float64, M, D)
+    for dd in 1:min(D, length(F.S))
+        a[:, dd] = F.V[:, dd] .* sqrt(max(F.S[dd], 0.0))
+    end
+    a = clamp.(a, -3.0, 3.0)
+    d = copy(d0)
+    gamma = zeros(Float64, M)
+
+    current_c = g -> estimate_c ? (guessing_upper .* sigmoid(g)) : c_fixed
+
+    function probs(a_, d_, c_)
+        lin = grid * transpose(a_) .+ transpose(d_)
+        s = sigmoid(lin)
+        p = isnothing(c_) ? s : transpose(c_) .+ (1.0 .- transpose(c_)) .* s
+        return clamp.(p, 1e-10, 1.0 - 1e-10)
+    end
+
+    function posterior(a_, d_, c_)
+        p = probs(a_, d_, c_)
+        loglik = k_correct * transpose(log.(p)) .+ n_incorrect * transpose(log.(1.0 .- p))
+        logpost = loglik .+ transpose(logw)
+        post = similar(logpost)
+        for l in 1:L
+            mx = maximum(@view logpost[l, :])
+            denom = 0.0
+            for g in 1:G
+                e = exp(logpost[l, g] - mx)
+                post[l, g] = e
+                denom += e
+            end
+            post[l, :] ./= denom
+        end
+        return post
+    end
+
+    for _ in 1:em_iter
+        # E-step: posterior over the latent grid for each model.
+        post = posterior(a, d, current_c(gamma))
+        f = n_trials_f .* vec(sum(post; dims=1))
+        r = transpose(post) * k_correct
+
+        # M-step: maximize the expected complete-data likelihood for the
+        # separable item parameters jointly.
+        function mstep(params::Vector{Float64})
+            a_ = reshape(@view(params[1:(M * D)]), M, D)
+            d_ = @view params[(M * D + 1):(M * D + M)]
+            local c_
+            if estimate_c
+                gamma_ = @view params[(M * D + M + 1):(M * D + 2 * M)]
+                c_ = guessing_upper .* sigmoid(gamma_)
+            else
+                c_ = c_fixed
+            end
+            lin = grid * transpose(a_) .+ transpose(d_)
+            s = sigmoid(lin)
+            p = isnothing(c_) ? s : transpose(c_) .+ (1.0 .- transpose(c_)) .* s
+            p = clamp.(p, 1e-10, 1.0 - 1e-10)
+            nll = -sum(r .* log.(p) .+ (f .- r) .* log.(1.0 .- p))
+            nll += reg_discrimination * sum(a_ .^ 2)
+            if estimate_c
+                gamma_ = @view params[(M * D + M + 1):(M * D + 2 * M)]
+                nll += reg_guessing * sum(gamma_ .^ 2)
+            end
+            return Float64(nll)
+        end
+
+        x0 = estimate_c ? vcat(vec(a), d, gamma) : vcat(vec(a), d)
+        x = _minimize_objective(mstep, x0; max_iter=max_iter)
+        a_new = reshape(copy(@view x[1:(M * D)]), M, D)
+        d_new = copy(@view x[(M * D + 1):(M * D + M)])
+        gamma_new = estimate_c ? copy(@view x[(M * D + M + 1):(M * D + 2 * M)]) : gamma
+
+        delta = max(
+            maximum(abs.(a_new .- a)),
+            maximum(abs.(d_new .- d)),
+            estimate_c ? maximum(abs.(gamma_new .- gamma)) : 0.0,
+        )
+        a = a_new
+        d = d_new
+        gamma = gamma_new
+        if delta < tol
+            break
+        end
+    end
+
+    # Final E-step: EAP abilities and posterior SD per dimension.
+    c_final = current_c(gamma)
+    post = posterior(a, d, c_final)
+    theta = post * grid
+    second = post * (grid .^ 2)
+    theta_sd = sqrt.(max.(second .- theta .^ 2, 0.0))
+
+    # Orient each latent axis so its mean slope is non-negative.
+    for dd in 1:D
+        if sum(@view a[:, dd]) < 0.0
+            a[:, dd] .*= -1.0
+            theta[:, dd] .*= -1.0
+        end
+    end
+
+    c_out = isnothing(c_final) ? zeros(Float64, M) : c_final
+    mdisc = sqrt.(vec(sum(a .^ 2; dims=2)))
+    mdiff = -d ./ max.(mdisc, 1e-12)
+
+    # Rotation-invariant reference composite for ranking.
+    a_bar = vec(sum(a; dims=1)) ./ Float64(M)
+    scores = theta * a_bar
+    return theta, a, d, c_out, mdisc, mdiff, theta_sd, scores
+end
+
+"""
+    mirt(
+        R;
+        n_factors=2,
+        model="2pl",
+        method="competition",
+        return_scores=false,
+        max_iter=50,
+        em_iter=100,
+        n_quadrature=15,
+        fix_guessing=nothing,
+        reg_discrimination=0.01,
+        reg_guessing=0.1,
+        guessing_upper=0.5,
+        tol=1e-4,
+        return_item_params=false,
+    )
+
+Rank models with compensatory multidimensional IRT (MIRT) via marginal-MLE EM.
+
+Each model `l` has a `D`-dimensional latent ability vector ``\\theta_l``
+(`D = n_factors`) and each question `m` a slope vector ``a_m`` and intercept
+``d_m``. The compensatory dichotomous model is
+
+```math
+P(R_{lmn}=1\\mid \\theta_l)
+= c_m + (1-c_m)\\,\\sigma\\!\\left(a_m^{\\top}\\theta_l + d_m\\right)
+```
+
+with ``c_m=0`` for `model="2pl"` and item pseudo-guessing for `model="3pl"`.
+Item parameters are estimated by a Bock-Aitkin EM algorithm integrating
+abilities over a standard multivariate-normal prior on a product
+Gauss-Hermite quadrature grid; abilities are summarized by their EAP values.
+
+Multidimensional abilities are collapsed to a scalar ranking score via the
+rotation-invariant reference composite, the projection of each ability vector
+onto the mean item-slope direction:
+
+```math
+s_l = \\bar a^{\\top}\\theta_l,\\qquad \\bar a = \\frac{1}{M}\\sum_m a_m
+```
+
+When `return_item_params=true`, also returns a dictionary with multidimensional
+difficulty (`"difficulty"`, ``\\mathrm{MDIFF}_m = -d_m/\\lVert a_m\\rVert``),
+multidimensional discrimination (`"discrimination"`,
+``\\mathrm{MDISC}_m = \\lVert a_m\\rVert``), slopes `"slopes"`, intercepts
+`"intercept"`, EAP abilities `"abilities"`, posterior SD `"ability_sd"`, and,
+for `model="3pl"`, guessing `"guessing"`.
+
+# References
+Chalmers, R. P. (2012). mirt: A Multidimensional Item Response Theory Package
+for the R Environment. *Journal of Statistical Software*, 48(6), 1-29.
+
+Bock, R. D., & Aitkin, M. (1981). Marginal maximum likelihood estimation of
+item parameters: Application of an EM algorithm. *Psychometrika*.
+"""
+function mirt(
+    R;
+    n_factors=2,
+    model="2pl",
+    method="competition",
+    return_scores=false,
+    max_iter=50,
+    em_iter=100,
+    n_quadrature=15,
+    fix_guessing=nothing,
+    reg_discrimination=0.01,
+    reg_guessing=0.1,
+    guessing_upper=0.5,
+    tol=1e-4,
+    return_item_params=false,
+)
+    n_factors_i = _validate_positive_int("n_factors", n_factors; min_value=1)
+    max_iter_i = _validate_positive_int("max_iter", max_iter)
+    em_iter_i = _validate_positive_int("em_iter", em_iter)
+    n_quadrature_i = _validate_positive_int("n_quadrature", n_quadrature; min_value=2)
+    reg_discrimination_f = _validate_nonnegative_float("reg_discrimination", reg_discrimination)
+    reg_guessing_f = _validate_nonnegative_float("reg_guessing", reg_guessing)
+    tol_f = _validate_nonnegative_float("tol", tol)
+    guessing_upper_f = _validate_guessing_upper(guessing_upper)
+
+    model_s = lowercase(strip(string(model)))
+    if model_s ∉ ("2pl", "3pl")
+        error("model must be '2pl' or '3pl'.")
+    end
+    if model_s == "2pl" && !isnothing(fix_guessing)
+        error("fix_guessing is only valid for model='3pl'.")
+    end
+    fix_guessing_v = _validate_fix_guessing(fix_guessing, guessing_upper_f)
+
+    grid_size = big(n_quadrature_i)^n_factors_i
+    if grid_size > 200_000
+        error(
+            "Product quadrature grid would have $grid_size nodes (n_quadrature=$n_quadrature_i ^ n_factors=$n_factors_i). Reduce n_factors or n_quadrature; compensatory MML-EM is intended for a small number of factors.",
+        )
+    end
+
+    k_correct, n_trials = _to_binomial_counts(R)
+    M = size(k_correct, 2)
+    if n_factors_i > M
+        error("n_factors=$n_factors_i cannot exceed number of questions M=$M.")
+    end
+
+    theta, a, d, c, mdisc, mdiff, theta_sd, scores = _estimate_mirt(
+        k_correct,
+        n_trials;
+        n_factors=n_factors_i,
+        model=model_s,
+        max_iter=max_iter_i,
+        em_iter=em_iter_i,
+        n_quadrature=n_quadrature_i,
+        fix_guessing=fix_guessing_v,
+        reg_discrimination=reg_discrimination_f,
+        reg_guessing=reg_guessing_f,
+        guessing_upper=guessing_upper_f,
+        tol=tol_f,
+    )
+
+    ranking = rank_scores(scores)[string(method)]
+    if return_item_params
+        params = Dict{String,Any}(
+            "difficulty" => mdiff,
+            "discrimination" => mdisc,
+            "slopes" => a,
+            "intercept" => d,
+            "abilities" => theta,
+            "ability_sd" => theta_sd,
+        )
+        if model_s == "3pl"
+            params["guessing"] = c
+        end
+        return ranking, scores, params
+    end
+    return return_scores ? (ranking, scores) : ranking
+end

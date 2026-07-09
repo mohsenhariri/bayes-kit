@@ -55,6 +55,7 @@ end
         :rasch_mml,
         :rasch_mml_credible,
         :dynamic_irt,
+        :mirt,
         :pagerank,
         :spectral,
         :alpharank,
@@ -70,7 +71,7 @@ end
         :bradley_terry_luce_map,
     ]
 
-    @test length(expected_exports) == 57
+    @test length(expected_exports) == 58
 
     actual_exports = Set(filter(name -> name != :Rank, names(Scorio.Rank; all=false, imported=true)))
     @test actual_exports == Set(expected_exports)
@@ -160,6 +161,14 @@ end
         ),
         :dynamic_irt =>
             () -> Scorio.Rank.dynamic_irt(R_matrix; variant="linear", max_iter=60, return_scores=true),
+        :mirt => () -> Scorio.Rank.mirt(
+            R_small;
+            n_factors=2,
+            n_quadrature=7,
+            em_iter=10,
+            max_iter=30,
+            return_scores=true,
+        ),
         :pagerank => () -> Scorio.Rank.pagerank(R_small; return_scores=true),
         :spectral => () -> Scorio.Rank.spectral(R_small; return_scores=true),
         :alpharank =>

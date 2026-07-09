@@ -7,7 +7,7 @@
  * EAP scoring). Rankings are induced by ability scores.
  */
 
-import { hermgauss } from "./internal/linalg.js";
+import { eigSymmetric, hermgauss } from "./internal/linalg.js";
 import { minimize } from "./internal/optimize.js";
 import { validatePositiveInt } from "./internal/validate.js";
 import { clip } from "./internal/special.js";
@@ -655,5 +655,288 @@ export function dynamicIrt(R: TensorInput, options: DynamicIrtOptions = {}): Ran
     throw new Error(`Unknown variant: ${variant}. Use 'linear', 'growth', or 'state_space'.`);
   }
 
+  return { ranking: rankScores(scores, method), scores };
+}
+
+// --- Multidimensional IRT (MIRT) ---------------------------------------------
+
+/** Options for compensatory multidimensional IRT. */
+export interface MirtOptions extends BaseRankOptions {
+  /** Number of latent ability dimensions `D` (default 2). */
+  nFactors?: number;
+  /** `"2pl"` (no guessing) or `"3pl"` (item pseudo-guessing). */
+  model?: "2pl" | "3pl";
+  /** Max L-BFGS iterations per EM M-step. */
+  maxIter?: number;
+  /** Max EM iterations. */
+  emIter?: number;
+  /** Gauss-Hermite nodes per dimension (grid is `nQuadrature ** nFactors`). */
+  nQuadrature?: number;
+  /** Fixed guessing in `[0, guessingUpper]` (3PL only); otherwise estimated. */
+  fixGuessing?: number | null;
+  /** L2 (ridge) penalty on slope vectors. */
+  regDiscrimination?: number;
+  /** L2 penalty on guessing logits (3PL only). */
+  regGuessing?: number;
+  /** Upper bound for item guessing in `(0, 1)`. */
+  guessingUpper?: number;
+  /** Convergence tolerance on the max item-parameter change between EM steps. */
+  tol?: number;
+}
+
+/** `D`-dimensional product Gauss-Hermite grid (nodes `G x D`, log weights `G`). */
+function buildProductQuadrature(
+  nFactors: number,
+  nQuadrature: number,
+): { grid: number[][]; logW: number[] } {
+  const { nodes, weights } = hermgauss(nQuadrature);
+  const nodes1d = nodes.map((x) => Math.sqrt(2) * x);
+  const logw1d = weights.map((w) => Math.log(w) - 0.5 * Math.log(Math.PI));
+
+  const G = nQuadrature ** nFactors;
+  const grid: number[][] = Array.from({ length: G }, () => new Array<number>(nFactors).fill(0));
+  const logW = new Array<number>(G).fill(0);
+  const idx = new Array<number>(nFactors).fill(0);
+  for (let g = 0; g < G; g++) {
+    let acc = 0;
+    for (let d = 0; d < nFactors; d++) {
+      grid[g]![d] = nodes1d[idx[d]!]!;
+      acc += logw1d[idx[d]!]!;
+    }
+    logW[g] = acc;
+    for (let d = 0; d < nFactors; d++) {
+      idx[d]!++;
+      if (idx[d]! < nQuadrature) break;
+      idx[d] = 0;
+    }
+  }
+  return { grid, logW };
+}
+
+interface MirtConfig {
+  nFactors: number;
+  model: "2pl" | "3pl";
+  maxIter: number;
+  emIter: number;
+  nQuadrature: number;
+  fixGuessing: number | null;
+  regDiscrimination: number;
+  regGuessing: number;
+  guessingUpper: number;
+  tol: number;
+}
+
+/**
+ * Estimate a compensatory MIRT model via marginal-MLE EM with EAP scoring, and
+ * return the rotation-invariant reference-composite ranking scores.
+ */
+function estimateMirt(k: number[][], nTrials: number, cfg: MirtConfig): { scores: number[] } {
+  const L = k.length;
+  const M = k[0]!.length;
+  const D = cfg.nFactors;
+  const { guessingUpper, regDiscrimination, regGuessing } = cfg;
+  const estimateC = cfg.model === "3pl" && cfg.fixGuessing === null;
+  const cFixed =
+    cfg.model === "3pl" && cfg.fixGuessing !== null
+      ? new Array<number>(M).fill(cfg.fixGuessing)
+      : null;
+
+  const { grid, logW } = buildProductQuadrature(D, cfg.nQuadrature);
+  const G = grid.length;
+
+  // Initialization: intercepts from item easiness, slopes from the leading
+  // singular directions of the centered logit matrix (via eig of ZᵀZ).
+  const pLM = k.map((row) => row.map((v) => clip((v + 0.5) / (nTrials + 1), 1e-6, 1 - 1e-6)));
+  const z = pLM.map((row) => row.map((p) => Math.log(p / (1 - p))));
+  const d0 = Array.from({ length: M }, (_, m) => mean(z.map((r) => r[m]!)));
+  const zc = z.map((row) => row.map((v, m) => v - d0[m]!));
+  const gram = Array.from({ length: M }, (_, i) =>
+    Array.from({ length: M }, (_, j) => {
+      let s = 0;
+      for (let l = 0; l < L; l++) s += zc[l]![i]! * zc[l]![j]!;
+      return s;
+    }),
+  );
+  const { values, vectors } = eigSymmetric(gram); // ascending eigenvalues
+  const a = Array.from({ length: M }, () => new Array<number>(D).fill(0));
+  for (let dd = 0; dd < D; dd++) {
+    const col = M - 1 - dd; // top-D singular directions
+    if (col < 0) break;
+    const sv = Math.sqrt(Math.max(values[col]!, 0)); // singular value
+    const scale = Math.sqrt(sv);
+    for (let m = 0; m < M; m++) a[m]![dd] = clip(vectors[m]![col]! * scale, -3, 3);
+  }
+  let d = d0.slice();
+  let gamma = new Array<number>(M).fill(0);
+
+  const currentC = (g: readonly number[]): number[] | null =>
+    estimateC ? g.map((v) => guessingUpper * sigmoid(v)) : cFixed;
+
+  // Probabilities at every (grid node, item): `G x M`, clamped.
+  const probsAt = (aM: number[][], dM: readonly number[], cM: number[] | null): number[][] => {
+    const p = Array.from({ length: G }, () => new Array<number>(M));
+    for (let g = 0; g < G; g++)
+      for (let m = 0; m < M; m++) {
+        let lin = dM[m]!;
+        for (let dd = 0; dd < D; dd++) lin += grid[g]![dd]! * aM[m]![dd]!;
+        const s = sigmoid(lin);
+        const pp = cM ? cM[m]! + (1 - cM[m]!) * s : s;
+        p[g]![m] = clip(pp, 1e-10, 1 - 1e-10);
+      }
+    return p;
+  };
+
+  const posterior = (aM: number[][], dM: readonly number[], cM: number[] | null): number[][] => {
+    const p = probsAt(aM, dM, cM);
+    const post = Array.from({ length: L }, () => new Array<number>(G).fill(0));
+    for (let l = 0; l < L; l++) {
+      const ll = new Array<number>(G);
+      let mx = -Infinity;
+      for (let g = 0; g < G; g++) {
+        let s = logW[g]!;
+        for (let m = 0; m < M; m++)
+          s += k[l]![m]! * Math.log(p[g]![m]!) + (nTrials - k[l]![m]!) * Math.log(1 - p[g]![m]!);
+        ll[g] = s;
+        if (s > mx) mx = s;
+      }
+      let denom = 0;
+      for (let g = 0; g < G; g++) {
+        const e = Math.exp(ll[g]! - mx);
+        post[l]![g] = e;
+        denom += e;
+      }
+      for (let g = 0; g < G; g++) post[l]![g]! /= denom;
+    }
+    return post;
+  };
+
+  const unpack = (params: readonly number[]): { aM: number[][]; dM: number[]; gM: number[] } => {
+    const aM = Array.from({ length: M }, (_, m) =>
+      Array.from({ length: D }, (_, dd) => params[m * D + dd]!),
+    );
+    const dM = params.slice(M * D, M * D + M);
+    const gM = estimateC ? params.slice(M * D + M, M * D + 2 * M) : gamma;
+    return { aM, dM, gM };
+  };
+
+  for (let it = 0; it < cfg.emIter; it++) {
+    // E-step.
+    const post = posterior(a, d, currentC(gamma));
+    const f = new Array<number>(G).fill(0);
+    for (let g = 0; g < G; g++) {
+      let s = 0;
+      for (let l = 0; l < L; l++) s += post[l]![g]!;
+      f[g] = nTrials * s;
+    }
+    const r = Array.from({ length: G }, (_, g) =>
+      Array.from({ length: M }, (_, m) => {
+        let s = 0;
+        for (let l = 0; l < L; l++) s += post[l]![g]! * k[l]![m]!;
+        return s;
+      }),
+    );
+
+    // M-step: maximize the expected complete-data likelihood for the separable
+    // item parameters jointly (L-BFGS, numerical gradient).
+    const obj = (params: readonly number[]): number => {
+      const { aM, dM, gM } = unpack(params);
+      const cM = estimateC ? gM.map((v) => guessingUpper * sigmoid(v)) : cFixed;
+      const p = probsAt(aM, dM, cM);
+      let nll = 0;
+      for (let g = 0; g < G; g++)
+        for (let m = 0; m < M; m++)
+          nll -= r[g]![m]! * Math.log(p[g]![m]!) + (f[g]! - r[g]![m]!) * Math.log(1 - p[g]![m]!);
+      for (let m = 0; m < M; m++)
+        for (let dd = 0; dd < D; dd++) nll += regDiscrimination * aM[m]![dd]! * aM[m]![dd]!;
+      if (estimateC) for (let m = 0; m < M; m++) nll += regGuessing * gM[m]! * gM[m]!;
+      return nll;
+    };
+
+    const x0 = [
+      ...a.flatMap((row) => row),
+      ...d,
+      ...(estimateC ? gamma : []),
+    ];
+    const res = minimize(obj, x0, { maxIter: cfg.maxIter });
+    const next = unpack(res.x);
+
+    let delta = 0;
+    for (let m = 0; m < M; m++) {
+      for (let dd = 0; dd < D; dd++) delta = Math.max(delta, Math.abs(next.aM[m]![dd]! - a[m]![dd]!));
+      delta = Math.max(delta, Math.abs(next.dM[m]! - d[m]!));
+      if (estimateC) delta = Math.max(delta, Math.abs(next.gM[m]! - gamma[m]!));
+    }
+    a.splice(0, M, ...next.aM);
+    d = next.dM;
+    gamma = next.gM;
+    if (delta < cfg.tol) break;
+  }
+
+  // Final E-step: EAP abilities, then rotation-invariant reference composite.
+  const post = posterior(a, d, currentC(gamma));
+  const theta = Array.from({ length: L }, (_, l) =>
+    Array.from({ length: D }, (_, dd) => {
+      let s = 0;
+      for (let g = 0; g < G; g++) s += post[l]![g]! * grid[g]![dd]!;
+      return s;
+    }),
+  );
+  const aBar = Array.from({ length: D }, (_, dd) => mean(a.map((row) => row[dd]!)));
+  const scores = theta.map((row) => row.reduce((s, v, dd) => s + v * aBar[dd]!, 0));
+  return { scores };
+}
+
+/**
+ * Rank models with compensatory multidimensional IRT (MIRT) via marginal-MLE
+ * EM. Each model has a `D`-dimensional ability vector and each item a slope
+ * vector `a` and intercept `d`, with `P = c + (1-c)·σ(aᵀθ + d)` (`c = 0` for
+ * 2PL). Abilities are scored by the rotation-invariant reference composite
+ * `āᵀθ` (projection onto the mean slope direction). Port of `scorio.rank.mirt`.
+ */
+export function mirt(R: TensorInput, options: MirtOptions = {}): RankResult {
+  const method = options.method ?? "competition";
+  const nFactors = validatePositiveInt("n_factors", options.nFactors ?? 2, 1);
+  const maxIter = validatePositiveInt("max_iter", options.maxIter ?? 50);
+  const emIter = validatePositiveInt("em_iter", options.emIter ?? 100);
+  const nQuadrature = validatePositiveInt("n_quadrature", options.nQuadrature ?? 15, 2);
+
+  const model = options.model ?? "2pl";
+  if (model !== "2pl" && model !== "3pl") {
+    throw new Error("model must be '2pl' or '3pl'.");
+  }
+  const fixGuessingRaw = options.fixGuessing ?? null;
+  if (model === "2pl" && fixGuessingRaw !== null) {
+    throw new Error("fixGuessing is only valid for model='3pl'.");
+  }
+  const guessingUpper = validateGuessingUpper(options.guessingUpper ?? 0.5);
+  const fixGuessing = validateFixGuessing(fixGuessingRaw, guessingUpper);
+
+  const gridSize = nQuadrature ** nFactors;
+  if (gridSize > 200000) {
+    throw new Error(
+      `Product quadrature grid would have ${gridSize} nodes ` +
+        `(n_quadrature=${nQuadrature} ** n_factors=${nFactors}). Reduce n_factors ` +
+        "or n_quadrature; compensatory MML-EM is intended for a small number of factors.",
+    );
+  }
+
+  const { k, nTrials } = toBinomialCounts(validateInput(R));
+  const M = k[0]!.length;
+  if (nFactors > M) {
+    throw new Error(`n_factors=${nFactors} cannot exceed number of questions M=${M}.`);
+  }
+
+  const { scores } = estimateMirt(k, nTrials, {
+    nFactors,
+    model,
+    maxIter,
+    emIter,
+    nQuadrature,
+    fixGuessing,
+    regDiscrimination: options.regDiscrimination ?? 0.01,
+    regGuessing: options.regGuessing ?? 0.1,
+    guessingUpper,
+    tol: options.tol ?? 1e-4,
+  });
   return { ranking: rankScores(scores, method), scores };
 }

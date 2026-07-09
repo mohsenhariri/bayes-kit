@@ -5,7 +5,7 @@ Bayesian evaluation toolkit for stochastic models — a TypeScript/JavaScript po
 It provides two families of APIs:
 
 - **`scorio/eval`** — point estimates **and** Bayesian uncertainty for metrics used to evaluate LLMs and other stochastic models under repeated sampling: Bayes@N, Avg@N, Pass@k / Pass^k, G-Pass@k, Maj@k, AUC@K, Max@k, and the geometric/spectrum blends.
-- **`scorio/rank`** — 40+ ranking estimators that order multiple models from a binary (or categorical) response tensor: eval-metric, voting, pairwise-rating (Elo/Glicko/TrueSkill), Bradley-Terry / Plackett-Luce / Rao-Kupper, IRT (Rasch/2PL/3PL/MML), graph (PageRank/spectral/α-Rank/Nash), seriation, and Hodge-theoretic methods.
+- **`scorio/rank`** — 40+ ranking estimators that order multiple models from a binary (or categorical) response tensor: eval-metric, voting, pairwise-rating (Elo/Glicko/TrueSkill), Bradley-Terry / Plackett-Luce / Rao-Kupper, IRT (Rasch/2PL/3PL/MML and multidimensional MIRT), graph (PageRank/spectral/α-Rank/Nash), seriation, and Hodge-theoretic methods.
 
 - **Zero runtime dependencies** — pure TypeScript (special functions, linear algebra, optimization, and an LP solver reimplemented from `scipy`/`numpy`).
 - **Dual ESM + CommonJS** builds with full type declarations.
@@ -106,7 +106,7 @@ rank.rank_centrality(R);
 | Bradley-Terry | `bradleyTerry`(`Map`), `bradleyTerryDavidson`(`Map`), `raoKupper`(`Map`) |
 | Bayesian | `thompson`, `bayesianMcmc` |
 | Voting | `borda`, `copeland`, `winRate`, `minimax`, `schulze`, `rankedPairs`, `kemenyYoung`, `nanson`, `baldwin`, `majorityJudgment` |
-| IRT | `rasch`(`Map`), `rasch2pl`(`Map`), `rasch3pl`(`Map`), `raschMml`, `raschMmlCredible`, `dynamicIrt` |
+| IRT | `rasch`(`Map`), `rasch2pl`(`Map`), `rasch3pl`(`Map`), `raschMml`, `raschMmlCredible`, `dynamicIrt`, `mirt` (multidimensional) |
 | Graph | `pagerank`, `spectral`, `alpharank`, `nash`, `rankCentrality` |
 | Seriation / Hodge | `serialRank`, `hodgeRank` |
 | Plackett-Luce | `plackettLuce`(`Map`), `davidsonLuce`(`Map`), `bradleyTerryLuce`(`Map`) |

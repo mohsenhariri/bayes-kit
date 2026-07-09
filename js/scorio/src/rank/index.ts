@@ -65,6 +65,7 @@ import {
   raschMml,
   raschMmlCredible,
   dynamicIrt,
+  mirt,
 } from "./irt.js";
 
 // Graph / seriation / hodge
@@ -146,6 +147,7 @@ export {
   raschMml,
   raschMmlCredible,
   dynamicIrt,
+  mirt,
   pagerank,
   spectral,
   alpharank,

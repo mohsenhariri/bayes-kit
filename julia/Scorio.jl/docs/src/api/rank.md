@@ -79,6 +79,7 @@ rasch_3pl_map
 dynamic_irt
 rasch_mml
 rasch_mml_credible
+mirt
 ```
 
 ## Voting Methods
