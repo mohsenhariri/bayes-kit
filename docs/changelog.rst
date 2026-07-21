@@ -3,6 +3,57 @@ Changelog
 
 All notable changes to this project will be documented in this file.
 
+Unreleased
+----------
+
+Added
+~~~~~
+
+- **Aggregation subpackage** (``scorio.aggregate``): test-time-scaling
+  answer aggregation across four categories: confidence signals from token
+  log-probabilities, process-reward aggregation, offline selection/voting over a
+  candidate pool of ``answers`` and per-candidate ``scores`` (higher is better),
+  and online early-stopping rules. Selection rules return the selected answer by
+  default and can optionally return a representative candidate index and, for
+  score-aware rules, its score. Measuring accuracy is left to ``scorio.eval``.
+  Signals and selection compose: many literature methods are a ``(signal,
+  rule)`` pair (e.g. DeepConf offline voting is ``weighted_majority_vote`` fed
+  ``deepconf_confidence``).
+
+  - Confidence signals (``scorio.aggregate.confidence``), per-trace scalar from
+    the chosen-token log-probabilities / top-\ ``k`` log-probabilities:
+    ``mean_logprob()`` / ``sequence_logprob()`` / ``perplexity()`` (sample-and-rank
+    and likelihood-weighted voting; Adiwardana et al., 2020; Wang et al., 2023),
+    ``self_certainty()`` (KL-from-uniform of the next-token law; Kang et al.,
+    2025), ``token_confidence()`` / ``deepconf_confidence()`` (DeepConf
+    negative-mean-top-\ ``k`` confidence with average / tail / bottom-percentile /
+    lowest-group reductions; Fu et al., 2025), ``token_entropy()`` /
+    ``varentropy()`` (Malinin & Gales, 2021; entropix, 2024),
+    ``max_softmax_probability()`` / ``logprob_margin()`` (Hendrycks & Gimpel, 2017;
+    Scheffer et al., 2001), and ``picsar()`` (reasoning + answer log-likelihood
+    selector; Leang et al., 2026).
+  - Reward aggregation (``scorio.aggregate.prm``): ``prm_aggregate()`` reduces
+    per-step process-reward scores to a per-trace reward via
+    ``last`` / ``min`` / ``mean`` / ``prod`` / ``max`` (Lightman et al., 2023;
+    Wang et al., 2024).
+  - Reward-based selection: ``best_of_n()`` (Cobbe et al., 2021),
+    ``majority_of_the_bests()`` / ``mob()`` (Rakhsha et al., 2025), and
+    ``best_of_majority()`` (highest-reward answer among the frequently produced
+    ones; Di et al., 2025).
+  - Vote-based aggregation: ``majority_vote()`` (Wang et al., 2023),
+    ``weighted_majority_vote()`` (Li et al., 2023),
+    ``softmax_weighted_vote()`` (CISC temperature-softmax-weighted vote bridging
+    majority vote and Best-of-N; Taubenfeld et al., 2025),
+    ``rank_weighted_vote()`` (rank-invariant Borda vote; Kang et al., 2025),
+    ``logit_weighted_vote()`` (threshold-shifted log-odds vote with negative
+    votes for low-quality candidates; Kuang et al., 2025), and
+    ``filtered_vote()`` (keep the top-scoring candidates, then vote; DeepConf;
+    Fu et al., 2025; Cobbe et al., 2021).
+  - Online early stopping (``scorio.aggregate.online``):
+    ``adaptive_consistency_stop()`` (Aggarwal et al., 2023), ``esc_stop()``
+    (Li et al., 2024), and ``deepconf_stop_threshold()`` /
+    ``deepconf_online_stop()`` (Fu et al., 2025).
+
 Version 0.2.2 (2026-04-28)
 --------------------------
 
@@ -36,5 +87,3 @@ Added
   - ``pass_hat_k()`` / ``g_pass_at_k()`` (all correct)
   - ``g_pass_at_k_tau()`` with threshold parameter
   - ``mg_pass_at_k()``
-
-

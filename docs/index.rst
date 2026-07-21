@@ -74,6 +74,7 @@ Contents
 
    api/eval
    api/rank
+   api/aggregate
    api/utils
 
 .. toctree::
