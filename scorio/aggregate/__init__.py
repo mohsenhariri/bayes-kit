@@ -14,8 +14,9 @@ The methods fall into five categories:
    verifier.
 2. **Reward aggregation** (:mod:`~scorio.aggregate.prm`) reduces a process reward
    model's per-step scores to one per-trace reward.
-3. **Offline selection** (:mod:`~scorio.aggregate.best_of`,
-   :mod:`~scorio.aggregate.vote`) collapses a fixed pool of ``answers`` (+ optional
+3. **Offline selection and calibration** (:mod:`~scorio.aggregate.best_of`,
+   :mod:`~scorio.aggregate.vote`, :mod:`~scorio.aggregate.calibration`) prepares
+   fitted calibration state or collapses a fixed pool of ``answers`` (+ optional
    ``scores``) into one predicted answer.
 4. **Confidence-guided aggregation** (:mod:`~scorio.aggregate.cges`) uses
    aligned confidence values for both answer selection and early stopping.
@@ -26,6 +27,11 @@ Signals + selection compose: many literature methods are a
 (confidence/reward signal, selection rule) pair -- e.g. DeepConf offline voting
 is ``weighted_majority_vote`` fed :func:`deepconf_confidence`, and self-certainty
 Best-of-N is ``best_of_n`` fed :func:`self_certainty`.
+
+Calibrated voting methods consume one scalar verification score per complete
+response. An ORM score can be used directly. A PRM's step-level scores require
+an explicit trace reduction such as :func:`prm_aggregate`; the same reduction
+must be used for calibration and inference.
 
 Setting
 -------
@@ -101,6 +107,14 @@ Vote-based aggregation (:mod:`~scorio.aggregate.vote`):
 - ``filtered_vote``: keep the top-scoring candidates, then (weighted) vote
   (DeepConf; Fu et al., 2025; Cobbe et al., 2021).
 
+Calibrated scalar-verifier aggregation
+(:mod:`~scorio.aggregate.calibration`):
+
+- ``fit_kde_vote_calibration``: fit correct/incorrect scalar-score KDEs and a
+  binned final-answer correctness calibrator (Kuang et al., 2025).
+- ``kde_weighted_vote``: combine the fitted scalar-score density ratio with an
+  estimated response-pool reliability term (Kuang et al., 2025).
+
 Confidence-guided aggregation (:mod:`~scorio.aggregate.cges`):
 
 - ``cges_vote``: select the answer with the largest CGES score.
@@ -118,6 +132,11 @@ Online early stopping (:mod:`~scorio.aggregate.online`):
 """
 
 from .best_of import best_of_majority, best_of_n, majority_of_the_bests, mob
+from .calibration import (
+    KDEVoteCalibration,
+    fit_kde_vote_calibration,
+    kde_weighted_vote,
+)
 from .cges import CGES_OTHER, cges_stop, cges_vote
 from .confidence import (
     deepconf_confidence,
@@ -175,6 +194,10 @@ __all__ = [
     "rank_weighted_vote",
     "logit_weighted_vote",
     "filtered_vote",
+    # calibrated scalar-verifier aggregation
+    "KDEVoteCalibration",
+    "fit_kde_vote_calibration",
+    "kde_weighted_vote",
     # confidence-guided aggregation
     "CGES_OTHER",
     "cges_vote",
