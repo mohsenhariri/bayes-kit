@@ -6,7 +6,7 @@ scorio.aggregate
 Test-time-scaling aggregation. Import the public API with
 ``from scorio import aggregate`` or its short alias ``from scorio import agg``.
 The two names refer to the same module, so ``scorio.agg.best_of_n(...)`` and
-``scorio.aggregate.best_of_n(...)`` are equivalent. The methods fall into four
+``scorio.aggregate.best_of_n(...)`` are equivalent. The methods fall into five
 categories:
 
 #. **Confidence signals** turn a trace's token log-probabilities / top-\ :math:`k`
@@ -14,8 +14,11 @@ categories:
    rules consume.
 #. **Reward aggregation** reduces a process reward model's per-step scores to one
    per-trace reward.
-#. **Offline selection** collapses a fixed pool of ``answers`` (+ optional
-   ``scores``) into one predicted answer.
+#. **Offline selection and calibration** collapses a fixed pool of ``answers``
+   (+ optional ``scores``) into one predicted answer, optionally using fitted
+   scalar-verifier calibration.
+#. **Confidence-guided aggregation** uses per-sample confidence values for both
+   answer selection and early stopping.
 #. **Online early stopping** decides when to stop sampling traces or generating a
    trace.
 
@@ -40,6 +43,11 @@ into a single predicted answer. The inputs are two aligned arrays:
 - ``scores``: per-candidate reward-model / verifier / confidence scores of
   the same shape (higher is better). Required by every rule except
   :func:`majority_vote`, which uses only ``answers``.
+
+The calibrated KDE rule requires one probability in ``(0, 1)`` per complete
+response. Step-level PRM scores must first be reduced with
+:func:`prm_aggregate` or another fixed reduction. Use the same reduction for
+calibration and inference.
 
 By default, every offline selection rule returns the selected answer per
 question: a scalar for ``(N,)`` input, or an ``(M,)`` object array for ``(M, N)``
@@ -156,6 +164,48 @@ single knob that continuously bridges :func:`majority_vote` and
 .. autofunction:: filtered_vote
 
 
+Calibrated scalar-verifier aggregation
+--------------------------------------
+
+KDE weighted voting fits two distributions over scalar response-level
+verification scores, conditioned on whether the response's final answer is
+correct, plus a binned final-answer correctness calibrator. The implementation
+uses Gaussian kernels, separate Scott bandwidths, and ten quantile bins by
+default.
+
+Fit only on held-out labeled responses from the relevant generator, verifier,
+scalar-score construction, and target distribution. Reuse the fitted object on
+test response pools; do not refit on evaluation labels.
+
+.. autoclass:: KDEVoteCalibration
+   :members: n_bins, calibrated_probability, log_density_ratio, weights
+   :exclude-members: correct_logits, incorrect_logits, correct_bandwidth, incorrect_bandwidth, bin_edges, bin_probability, kernel, binning
+
+.. autofunction:: fit_kde_vote_calibration
+
+.. autofunction:: kde_weighted_vote
+
+
+Confidence-guided aggregation
+-----------------------------
+
+CGES maintains scores for the answers observed so far and for
+:data:`CGES_OTHER`, the bucket for a correct answer that has not appeared yet.
+Its input scores must be finite values strictly between zero and one. The same
+score calculation supports final selection with :func:`cges_vote` and
+sampling-time stopping with :func:`cges_stop`.
+
+By default, only observed answers can be selected or trigger stopping. Set
+``allow_other=True`` in :func:`cges_vote` or ``include_other=True`` in
+:func:`cges_stop` to use the full support from Algorithm 1.
+
+.. autodata:: CGES_OTHER
+
+.. autofunction:: cges_vote
+
+.. autofunction:: cges_stop
+
+
 Online early stopping
 ---------------------
 
@@ -165,6 +215,10 @@ stop drawing traces; the trace-level DeepConf rules report the token at which a
 trace's running confidence falls below a warmup-calibrated threshold.
 
 .. autofunction:: adaptive_consistency_stop
+
+.. autofunction:: adaptive_consistency_dirichlet_stop
+
+.. autofunction:: adaptive_consistency_crp_stop
 
 .. autofunction:: esc_stop
 

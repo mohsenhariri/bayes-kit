@@ -10,14 +10,15 @@ Added
 ~~~~~
 
 - **Aggregation subpackage** (``scorio.aggregate``): test-time-scaling
-  answer aggregation across four categories: confidence signals from token
+  answer aggregation across five categories: confidence signals from token
   log-probabilities, process-reward aggregation, offline selection/voting over a
   candidate pool of ``answers`` and per-candidate ``scores`` (higher is better),
-  and online early-stopping rules. Selection rules return the selected answer by
-  default and can optionally return a representative candidate index and, for
-  score-aware rules, its score. Measuring accuracy is left to ``scorio.eval``.
-  Signals and selection compose: many literature methods are a ``(signal,
-  rule)`` pair (e.g. DeepConf offline voting is ``weighted_majority_vote`` fed
+  confidence-guided selection and stopping, and other online early-stopping
+  rules. Selection rules return the selected answer by default and can
+  optionally return a representative candidate index and, for score-aware
+  rules, its score. Measuring accuracy is left to ``scorio.eval``. Signals and
+  selection compose: many literature methods are a ``(signal, rule)`` pair
+  (e.g. DeepConf offline voting is ``weighted_majority_vote`` fed
   ``deepconf_confidence``).
 
   - Confidence signals (``scorio.aggregate.confidence``), per-trace scalar from
@@ -49,10 +50,23 @@ Added
     votes for low-quality candidates; Kuang et al., 2025), and
     ``filtered_vote()`` (keep the top-scoring candidates, then vote; DeepConf;
     Fu et al., 2025; Cobbe et al., 2021).
+  - Calibrated scalar-verifier aggregation
+    (``scorio.aggregate.calibration``): ``fit_kde_vote_calibration()`` fits
+    correct/incorrect KDEs and a binned final-answer correctness calibrator;
+    ``kde_weighted_vote()`` applies the resulting non-parametric vote (Kuang et
+    al., 2025). It consumes one scalar verification probability per response;
+    step-level scores must use the same fixed reduction during calibration and
+    inference.
   - Online early stopping (``scorio.aggregate.online``):
-    ``adaptive_consistency_stop()`` (Aggarwal et al., 2023), ``esc_stop()``
-    (Li et al., 2024), and ``deepconf_stop_threshold()`` /
-    ``deepconf_online_stop()`` (Fu et al., 2025).
+    ``adaptive_consistency_stop()``, its full observed-support Dirichlet variant
+    ``adaptive_consistency_dirichlet_stop()``, and its finite-horizon,
+    unseen-answer CRP comparator ``adaptive_consistency_crp_stop()`` (Aggarwal
+    et al., 2023); ``esc_stop()`` (Li et al., 2024); and
+    ``deepconf_stop_threshold()`` / ``deepconf_online_stop()`` (Fu et al.,
+    2025).
+  - Confidence-guided aggregation (``scorio.aggregate.cges``):
+    ``cges_vote()`` selects a final answer and ``cges_stop()`` checks an online
+    stopping threshold (Aghazadeh et al., 2026).
 
 Version 0.2.2 (2026-04-28)
 --------------------------
