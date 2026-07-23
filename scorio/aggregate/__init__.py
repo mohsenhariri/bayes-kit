@@ -6,7 +6,7 @@ do with the pool. It sits upstream of :mod:`scorio.eval` (which scores one model
 and is the natural companion to :mod:`scorio.sinf.vote` (which decides *how many*
 candidates to sample).
 
-The methods fall into four categories:
+The methods fall into five categories:
 
 1. **Confidence signals** (:mod:`~scorio.aggregate.confidence`) turn a trace's own
    token log-probabilities / top-:math:`k` log-probabilities into a scalar
@@ -17,7 +17,9 @@ The methods fall into four categories:
 3. **Offline selection** (:mod:`~scorio.aggregate.best_of`,
    :mod:`~scorio.aggregate.vote`) collapses a fixed pool of ``answers`` (+ optional
    ``scores``) into one predicted answer.
-4. **Online early stopping** (:mod:`~scorio.aggregate.online`) decides when to
+4. **Confidence-guided aggregation** (:mod:`~scorio.aggregate.cges`) uses
+   aligned confidence values for both answer selection and early stopping.
+5. **Online early stopping** (:mod:`~scorio.aggregate.online`) decides when to
    stop sampling traces or stop generating a trace.
 
 Signals + selection compose: many literature methods are a
@@ -99,6 +101,12 @@ Vote-based aggregation (:mod:`~scorio.aggregate.vote`):
 - ``filtered_vote``: keep the top-scoring candidates, then (weighted) vote
   (DeepConf; Fu et al., 2025; Cobbe et al., 2021).
 
+Confidence-guided aggregation (:mod:`~scorio.aggregate.cges`):
+
+- ``cges_vote``: select the answer with the largest CGES score.
+- ``cges_stop``: stop sampling when a CGES score reaches a threshold
+  (Aghazadeh et al., 2026).
+
 Online early stopping (:mod:`~scorio.aggregate.online`):
 
 - ``adaptive_consistency_stop``: stop sampling when the top-two answer counts
@@ -110,6 +118,7 @@ Online early stopping (:mod:`~scorio.aggregate.online`):
 """
 
 from .best_of import best_of_majority, best_of_n, majority_of_the_bests, mob
+from .cges import CGES_OTHER, cges_stop, cges_vote
 from .confidence import (
     deepconf_confidence,
     logprob_margin,
@@ -166,6 +175,10 @@ __all__ = [
     "rank_weighted_vote",
     "logit_weighted_vote",
     "filtered_vote",
+    # confidence-guided aggregation
+    "CGES_OTHER",
+    "cges_vote",
+    "cges_stop",
     # online early stopping
     "adaptive_consistency_stop",
     "esc_stop",

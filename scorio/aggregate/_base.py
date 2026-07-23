@@ -40,7 +40,7 @@ def _is_valid(a: Any) -> bool:
         return False
     if isinstance(a, str):
         return a != ""
-    return not (isinstance(a, float) and math.isnan(a))
+    return not (isinstance(a, (float, np.floating)) and math.isnan(float(a)))
 
 
 def _normalize(
