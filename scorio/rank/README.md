@@ -1,19 +1,18 @@
 # `scorio.rank` Method References
 
-This catalog links each public ranking method to its implementation and primary
-references. Methods generally accept a binary model-by-question response matrix
+Methods generally accept a binary model-by-question response matrix
 or model-by-question-by-trial tensor; `bayes` additionally supports integer
 categorical outcomes. Several methods adapt their source model by constructing
 pairwise or setwise outcomes from each question-trial event.
 
 Important implementation scope:
 
-- Unregularized Bradley--Terry and decisive/composite Luce maximum-likelihood
+- Unregularized Bradley-Terry and decisive/composite Luce maximum-likelihood
   fits require a strongly connected directed win graph. Their tie-model
   extensions require the analogous directed win/tie or winner/co-winner support
   graph. These APIs raise when no finite MLE exists; use the corresponding MAP
   estimator for separated data.
-- `plackett_luce` is the decisive pairwise Bradley--Terry restriction of Luce
+- `plackett_luce` is the decisive pairwise Bradley-Terry restriction of Luce
   and drops tied outcomes; `bradley_terry_luce` is a rank-broken composite
   likelihood. Only `davidson_luce` directly models a tied winner set as one
   normalized event. The corresponding MAP APIs use the same constructions.
@@ -22,9 +21,8 @@ Important implementation scope:
   on arbitrary model index order. `trueskill` is an induced two-player
   approximation, not the original paper's full multiplayer factor graph.
 - `thompson` is an offline posterior expected-rank estimator using Beta posterior
-  samples. It is inspired by Thompson sampling, not a sequential bandit policy.
-- `inverse_difficulty` is a question-difficulty reweighting heuristic; it is not
-  presented as a formal inverse-probability-weighting estimator.
+  samples. It is inspired by Thompson sampling.
+- `inverse_difficulty` is a question-difficulty reweighting heuristic.
 - `mg_pass_at_k` follows the paper's discrete threshold-grid approximation to
   the G-Pass AUC. For odd `k`, that approximation does not attain exactly one
   even for a perfect model.
