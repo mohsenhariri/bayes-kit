@@ -19,7 +19,8 @@ module. Generalized G-Pass variants live in :mod:`scorio.eval.gpass`.
 import math
 
 import numpy as np
-from scipy.special import betaln, comb
+from scipy.special import betaln
+from scipy.stats import hypergeom
 
 from .utils import _as_2d_int_matrix, _validate_binary, normal_credible_interval
 
@@ -79,8 +80,10 @@ def pass_at_k(R: np.ndarray, k: int) -> float:
     if not (1 <= k <= N):
         raise ValueError(f"k must satisfy 1 <= k <= N (N={N}); got k={k}")
     nu = np.sum(R, axis=1)
-    denom = comb(N, k)
-    vals = 1 - comb(N - nu, k) / denom  # (M,)
+    # P(X >= 1), X ~ Hypergeom(N, nu, k). The survival function avoids
+    # overflow in the equivalent ratio of binomial coefficients for large N,k.
+    vals = np.asarray(hypergeom.sf(0, N, nu, k), dtype=float)
+    vals = np.clip(vals, 0.0, 1.0)
     return float(np.mean(vals))
 
 
@@ -141,8 +144,10 @@ def pass_hat_k(R: np.ndarray, k: int) -> float:
     if not (1 <= k <= N):
         raise ValueError(f"k must satisfy 1 <= k <= N (N={N}); got k={k}")
     nu = np.sum(R, axis=1)
-    denom = comb(N, k)
-    vals = comb(nu, k) / denom  # (M,)
+    # P(X = k), X ~ Hypergeom(N, nu, k), evaluated without forming the
+    # potentially overflowing binomial coefficients explicitly.
+    vals = np.asarray(hypergeom.pmf(k, N, nu, k), dtype=float)
+    vals = np.clip(vals, 0.0, 1.0)
     return float(np.mean(vals))
 
 

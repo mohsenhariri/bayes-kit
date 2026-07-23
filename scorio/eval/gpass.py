@@ -3,8 +3,9 @@ r"""Generalized pass-family evaluation metrics for binary outcomes.
 Estimate stability-style pass metrics from a binary outcome matrix
 :math:`R \in \{0,1\}^{M \times N}`. ``G-Pass@k`` is the all-success
 threshold, ``G-Pass@k``\ :sub:`\tau` requires at least
-:math:`\lceil \tau k \rceil` successes, and ``mG-Pass@k`` averages over
-thresholds :math:`\tau \in [0.5, 1.0]`. Bayesian summaries compute posterior
+:math:`\max(1, \lceil \tau k \rceil)` successes, and ``mG-Pass@k`` uses
+the cited discrete approximation over thresholds
+:math:`\tau \in [0.5, 1.0]`. Bayesian summaries compute posterior
 ``mu`` and ``sigma`` under a Beta model for each question's latent success
 rate.
 
@@ -21,6 +22,7 @@ import math
 
 import numpy as np
 from scipy.special import comb
+from scipy.stats import hypergeom
 
 from .pass_at_k import (
     _beta_ratio,
@@ -43,10 +45,10 @@ def g_pass_at_k(R: np.ndarray, k: int) -> float:
     :math:`\tau = 1` threshold.
 
     References:
-        Liu, J., Liu, H., Xiao, L., et al. (2024).
+        Liu, J., Liu, H., Xiao, L., et al. (2025).
         Are Your LLMs Capable of Stable Reasoning?
-        *arXiv preprint arXiv:2412.13147*.
-        https://arxiv.org/abs/2412.13147
+        *Findings of ACL 2025*, 17594--17632.
+        https://doi.org/10.18653/v1/2025.findings-acl.905
 
     Args:
         R: :math:`M \times N` binary matrix with entries in :math:`\{0, 1\}`.
@@ -93,10 +95,10 @@ def g_pass_at_k_tau(R: np.ndarray, k: int, tau: float) -> float:
     Performance evaluation using G-Pass@k\ :sub:`τ`.
 
     References:
-        Liu, J., Liu, H., Xiao, L., et al. (2024).
+        Liu, J., Liu, H., Xiao, L., et al. (2025).
         Are Your LLMs Capable of Stable Reasoning?
-        *arXiv preprint arXiv:2412.13147*.
-        https://arxiv.org/abs/2412.13147
+        *Findings of ACL 2025*, 17594--17632.
+        https://doi.org/10.18653/v1/2025.findings-acl.905
 
     Args:
         R: :math:`M \times N` binary matrix with entries in :math:`\{0, 1\}`.
@@ -104,7 +106,7 @@ def g_pass_at_k_tau(R: np.ndarray, k: int, tau: float) -> float:
            :math:`\alpha` passed, 0 otherwise.
         k: Number of samples to select (:math:`1 \le k \le N`).
         tau: Threshold parameter :math:`\tau \in [0, 1]`. Requires at
-             least :math:`\lceil \tau \cdot k \rceil` successes.
+             least :math:`\max(1, \lceil \tau \cdot k \rceil)` successes.
              When :math:`\tau = 0`, equivalent to Pass@k.
              When :math:`\tau = 1`, equivalent to Pass^k.
 
@@ -120,8 +122,9 @@ def g_pass_at_k_tau(R: np.ndarray, k: int, tau: float) -> float:
 
         :math:`C(a, b)` denotes the binomial coefficient :math:`\binom{a}{b}`.
 
-        :math:`j_0 = \lceil \tau \cdot k \rceil` is the minimum number of
-        successes required.
+        :math:`j_0 = \max(1, \lceil \tau \cdot k \rceil)` is the minimum
+        number of successes required. The lower bound of one makes
+        :math:`\tau=0` equivalent to Pass@k rather than a vacuous event.
 
     Formula:
         .. math::
@@ -145,7 +148,7 @@ def g_pass_at_k_tau(R: np.ndarray, k: int, tau: float) -> float:
     """
     R = _as_2d_int_matrix(R)
     _validate_binary(R)
-    M, N = R.shape
+    _, N = R.shape
 
     if not (0.0 <= tau <= 1.0):
         raise ValueError(f"tau must be in [0, 1]; got {tau}")
@@ -156,15 +159,9 @@ def g_pass_at_k_tau(R: np.ndarray, k: int, tau: float) -> float:
         return pass_at_k(R, k)
 
     nu = np.sum(R, axis=1)
-    denom = comb(N, k)
-
-    j0 = int(math.ceil(tau * k))
-    if j0 > k:
-        return 0.0
-
-    vals = np.zeros(M, dtype=float)
-    for j in range(j0, k + 1):
-        vals += comb(nu, j) * comb(N - nu, k - j) / denom
+    j0 = max(1, int(math.ceil(tau * k)))
+    vals = np.asarray(hypergeom.sf(j0 - 1, N, nu, k), dtype=float)
+    vals = np.clip(vals, 0.0, 1.0)
     return float(np.mean(vals))
 
 
@@ -173,10 +170,10 @@ def mg_pass_at_k(R: np.ndarray, k: int) -> float:
     Performance evaluation using mG-Pass@k.
 
     References:
-        Liu, J., Liu, H., Xiao, L., et al. (2024).
+        Liu, J., Liu, H., Xiao, L., et al. (2025).
         Are Your LLMs Capable of Stable Reasoning?
-        *arXiv preprint arXiv:2412.13147*.
-        https://arxiv.org/abs/2412.13147
+        *Findings of ACL 2025*, 17594--17632.
+        https://doi.org/10.18653/v1/2025.findings-acl.905
 
     Args:
         R: :math:`M \times N` binary matrix with entries in :math:`\{0, 1\}`.
@@ -200,9 +197,14 @@ def mg_pass_at_k(R: np.ndarray, k: int) -> float:
         :math:`\alpha`.
 
     Formula:
+        The cited G-Pass metric defines mG-Pass by the following discrete
+        summation. It is a right-endpoint approximation to the normalized
+        continuous area over :math:`\tau \in [0.5,1]`, rather than an exact
+        integral identity for arbitrary (in particular, odd) :math:`k`.
+
         .. math::
 
-            \mathrm{mG\text{-}Pass@}k_\alpha = 2 \int_{0.5}^{1.0}
+            \mathrm{mG\text{-}Pass@}k_\alpha \approx 2 \int_{0.5}^{1.0}
                 \mathrm{G\text{-}Pass@}k_{\tau, \alpha} \, d\tau
 
         .. math::
@@ -236,7 +238,6 @@ def mg_pass_at_k(R: np.ndarray, k: int) -> float:
         raise ValueError(f"k must satisfy 1 <= k <= N (N={N}); got k={k}")
 
     nu = np.sum(R, axis=1)
-    denom = comb(N, k)
 
     majority = int(math.ceil(0.5 * k))
     if majority >= k:
@@ -245,10 +246,11 @@ def mg_pass_at_k(R: np.ndarray, k: int) -> float:
     vals = np.zeros(M, dtype=float)
     # mG per-question = (2/k) * E[(X - majority)_+], X ~ Hypergeom(N, nu, k)
     for j in range(majority + 1, k + 1):
-        pmf = comb(nu, j) * comb(N - nu, k - j) / denom
+        pmf = np.asarray(hypergeom.pmf(j, N, nu, k), dtype=float)
         vals += (j - majority) * pmf
 
     vals *= 2.0 / k
+    vals = np.clip(vals, 0.0, 1.0)
     return float(np.mean(vals))
 
 
@@ -427,9 +429,10 @@ def mg_pass_at_k_ci(
     r"""
     Bayesian posterior summary for mG-Pass@k.
 
-    The latent target averages thresholded G-Pass@k over thresholds from
-    ``0.5`` to ``1.0`` using the closed-form weighting in
-    :func:`~scorio.eval.mg_pass_at_k`.
+    The latent target uses the published discrete threshold weighting from
+    ``0.5`` to ``1.0`` implemented by :func:`~scorio.eval.mg_pass_at_k`.
+    This weighting approximates, but for odd ``k`` does not exactly equal,
+    the corresponding continuous area.
 
     Args:
         R: :math:`M \times N` binary matrix with entries in :math:`\{0,1\}`.
