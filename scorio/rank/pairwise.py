@@ -26,7 +26,8 @@ where :math:`s_i` is the final score used for ranking.
 from typing import cast
 
 import numpy as np
-from scipy.stats import norm
+from scipy.special import erfcx, log_ndtr
+from scipy.stats import truncnorm
 
 from scorio.utils import rank_scores
 
@@ -111,8 +112,9 @@ def elo(
         [1, 1]
 
     Notes:
-        The implementation processes pairs in index order for each
-        ``(trial, question)`` event.
+        All matches induced by one ``(question, trial)`` event are evaluated
+        from the same pre-event rating snapshot. This preserves model-label
+        symmetry while retaining the intended dependence on event order.
     """
     R = validate_input(R)
     L, M, N = R.shape
@@ -131,6 +133,8 @@ def elo(
     for t in range(N):
         for q in range(M):
             outcomes = R[:, q, t]
+            event_ratings = ratings.copy()
+            rating_delta = np.zeros(L, dtype=float)
 
             for i in range(L):
                 for j in range(i + 1, L):
@@ -151,13 +155,14 @@ def elo(
                         S_i, S_j = (1.0, 0.0) if r_i > r_j else (0.0, 1.0)
 
                     # Expected scores
-                    R_i, R_j = ratings[i], ratings[j]
+                    R_i, R_j = event_ratings[i], event_ratings[j]
                     E_i = 1.0 / (1.0 + 10.0 ** ((R_j - R_i) / 400.0))
                     E_j = 1.0 - E_i
 
-                    # Update
-                    ratings[i] = R_i + K * (S_i - E_i)
-                    ratings[j] = R_j + K * (S_j - E_j)
+                    rating_delta[i] += K * (S_i - E_i)
+                    rating_delta[j] += K * (S_j - E_j)
+
+            ratings += rating_delta
 
     ranking = rank_scores(ratings)[method]
 
@@ -247,7 +252,10 @@ def trueskill(
 
     Notes:
         This is a simplified two-player update stream, not full multiplayer
-        factor-graph inference from the original TrueSkill paper.
+        factor-graph inference from the original TrueSkill paper. Pairwise
+        Gaussian sites induced by the same question-trial event are computed
+        from a common pre-event belief and combined in natural-parameter form,
+        preserving model-label symmetry.
     """
     R = validate_input(R)
     L, M, N = R.shape
@@ -273,41 +281,76 @@ def trueskill(
     mu = np.full(L, mu_initial, dtype=float)
     sigma = np.full(L, sigma_initial, dtype=float)
 
-    def v_win(t: float, epsilon: float) -> float:
-        """Correction term for decisive outcomes."""
+    def win_corrections(t: float, epsilon: float) -> tuple[float, float]:
+        """Stable correction terms for a decisive outcome."""
         x = t - epsilon
-        denom = float(norm.cdf(x))
-        if denom < 1e-12:
-            # Asymptotic approximation for extreme tails.
-            return float(-x)
-        return float(norm.pdf(x) / denom)
+        if x < -10.0:
+            y = -x
+            inverse_y = 1.0 / y
+            inverse_y2 = inverse_y * inverse_y
+            # Lower-tail inverse Mills ratio and w have severe cancellation
+            # in v*(v+x). Their asymptotic series remain accurate here.
+            v = y + inverse_y * (
+                1.0 + inverse_y2 * (-2.0 + inverse_y2 * (10.0 + inverse_y2 * (-74.0)))
+            )
+            w = 1.0 + inverse_y2 * (-1.0 + inverse_y2 * (6.0 + inverse_y2 * (-50.0)))
+        elif x < 0.0:
+            v = float(np.sqrt(2.0 / np.pi) / erfcx(-x / np.sqrt(2.0)))
+            w = v * (v + x)
+        else:
+            log_v = -0.5 * x * x - 0.5 * np.log(2.0 * np.pi) - log_ndtr(x)
+            v = float(np.exp(log_v))
+            w = v * (v + x)
+        w = float(np.clip(w, 0.0, 1.0))
+        return v, w
 
-    def w_win(t: float, epsilon: float) -> float:
-        v = v_win(t, epsilon)
-        return float(v * (v + t - epsilon))
+    def draw_corrections(t: float, epsilon: float) -> tuple[float, float]:
+        """Stable correction terms for a draw outcome."""
+        # A zero-width draw is a well-defined conditional-Gaussian limit,
+        # even though the event itself has zero probability.
+        if epsilon <= np.sqrt(np.finfo(float).eps) * (1.0 + abs(t)):
+            return -t, 1.0
 
-    def v_draw(t: float, epsilon: float) -> float:
-        """Correction term for draw outcomes."""
         a = -epsilon - t
         b = epsilon - t
-        cdf_a = float(norm.cdf(a))
-        cdf_b = float(norm.cdf(b))
-        denom = cdf_b - cdf_a
-        if denom < 1e-12:
-            return 0.0
-        return float((norm.pdf(a) - norm.pdf(b)) / denom)
+        if a < -10.0 and b > 10.0:
+            return 0.0, 0.0
 
-    def w_draw(t: float, epsilon: float) -> float:
-        a = -epsilon - t
-        b = epsilon - t
-        cdf_a = float(norm.cdf(a))
-        cdf_b = float(norm.cdf(b))
-        denom = cdf_b - cdf_a
-        if denom < 1e-12:
-            return 1.0
-        v = v_draw(t, epsilon)
-        term = ((b * norm.pdf(b)) - (a * norm.pdf(a))) / denom
-        return float(v * v + term)
+        try:
+            conditional_mean, conditional_var = truncnorm.stats(a, b, moments="mv")
+            v = float(conditional_mean)
+            variance = float(conditional_var)
+            if not np.isfinite(v) or not np.isfinite(variance) or variance < 0.0:
+                raise FloatingPointError
+        except (FloatingPointError, OverflowError, ValueError):
+            reflected = b < 0.0
+            lower = -b if reflected else a
+            upper = -a if reflected else b
+            if lower <= 0.0:
+                # This fallback is reached only for extreme numeric inputs;
+                # a straddling interval has effectively full normal mass.
+                return 0.0, 0.0
+            width = upper - lower
+            scaled_width = lower * width
+            if scaled_width > 50.0:
+                tail_v, tail_w = win_corrections(-lower, 0.0)
+                v = tail_v
+                variance = 1.0 - tail_w
+            elif scaled_width < 1e-4:
+                mean_offset = width * (0.5 - scaled_width / 12.0)
+                variance = width * width / 12.0
+                v = lower + mean_offset
+            else:
+                denominator = np.expm1(scaled_width)
+                mean_offset = 1.0 / lower - width / denominator
+                variance = 1.0 / (lower * lower) - width * width * np.exp(
+                    scaled_width
+                ) / (denominator * denominator)
+                v = lower + mean_offset
+            if reflected:
+                v = -v
+        w = float(np.clip(1.0 - variance, 0.0, 1.0))
+        return v, w
 
     def update_decisive(mu1, sigma1, mu2, sigma2, player1_wins):
         """Update ratings for a decisive 2-player match."""
@@ -316,15 +359,13 @@ def trueskill(
 
         if player1_wins:
             t = (mu1 - mu2) / c
-            v = v_win(t, epsilon)
-            w = w_win(t, epsilon)
+            v, w = win_corrections(t, epsilon)
 
             mu1_new = mu1 + (sigma1**2 / c) * v
             mu2_new = mu2 - (sigma2**2 / c) * v
         else:
             t = (mu2 - mu1) / c
-            v = v_win(t, epsilon)
-            w = w_win(t, epsilon)
+            v, w = win_corrections(t, epsilon)
 
             mu2_new = mu2 + (sigma2**2 / c) * v
             mu1_new = mu1 - (sigma1**2 / c) * v
@@ -339,8 +380,7 @@ def trueskill(
         c = np.sqrt(2 * beta**2 + sigma1**2 + sigma2**2)
         epsilon = draw_margin / c
         t = (mu1 - mu2) / c
-        v = v_draw(t, epsilon)
-        w = w_draw(t, epsilon)
+        v, w = draw_corrections(t, epsilon)
 
         mu1_new = mu1 + (sigma1**2 / c) * v
         mu2_new = mu2 - (sigma2**2 / c) * v
@@ -353,8 +393,14 @@ def trueskill(
     for t in range(N):
         for q in range(M):
             outcomes = R[:, q, t]
+            event_mu = mu.copy()
+            event_sigma = sigma.copy()
+            prior_variance = event_sigma**2
+            precision_increment = np.zeros(L, dtype=float)
+            natural_increment = np.zeros(L, dtype=float)
 
-            # Process all pairs
+            # Approximate each pairwise likelihood from the same event-start
+            # beliefs, then combine its Gaussian site in natural parameters.
             for i in range(L):
                 for j in range(i + 1, L):
                     r_i, r_j = outcomes[i], outcomes[j]
@@ -364,14 +410,40 @@ def trueskill(
                             continue
                         if tie_policy == "correct_draw_only" and int(r_i) == 0:
                             continue
-                        mu[i], sigma[i], mu[j], sigma[j] = update_draw(
-                            mu[i], sigma[i], mu[j], sigma[j]
+                        pair_mu_i, pair_sigma_i, pair_mu_j, pair_sigma_j = update_draw(
+                            event_mu[i],
+                            event_sigma[i],
+                            event_mu[j],
+                            event_sigma[j],
                         )
-                        continue
+                    else:
+                        pair_mu_i, pair_sigma_i, pair_mu_j, pair_sigma_j = (
+                            update_decisive(
+                                event_mu[i],
+                                event_sigma[i],
+                                event_mu[j],
+                                event_sigma[j],
+                                player1_wins=(r_i > r_j),
+                            )
+                        )
 
-                    mu[i], sigma[i], mu[j], sigma[j] = update_decisive(
-                        mu[i], sigma[i], mu[j], sigma[j], player1_wins=(r_i > r_j)
-                    )
+                    for player, pair_mu, pair_sigma in (
+                        (i, pair_mu_i, pair_sigma_i),
+                        (j, pair_mu_j, pair_sigma_j),
+                    ):
+                        pair_variance = pair_sigma**2
+                        precision_increment[player] += (
+                            1.0 / pair_variance - 1.0 / prior_variance[player]
+                        )
+                        natural_increment[player] += (
+                            pair_mu / pair_variance
+                            - event_mu[player] / prior_variance[player]
+                        )
+
+            posterior_precision = 1.0 / prior_variance + precision_increment
+            posterior_natural = event_mu / prior_variance + natural_increment
+            sigma = np.sqrt(1.0 / posterior_precision)
+            mu = posterior_natural / posterior_precision
 
         # Apply dynamics (skill drift)
         sigma = np.sqrt(sigma**2 + tau**2)
@@ -482,12 +554,12 @@ def glicko(
         raise ValueError("initial_rd must be > 0 and finite.")
 
     rd_max = float(rd_max)
-    if rd_max <= 0:
-        raise ValueError("rd_max must be > 0")
+    if not np.isfinite(rd_max) or rd_max <= 0:
+        raise ValueError("rd_max must be > 0 and finite.")
 
     c = float(c)
-    if c < 0:
-        raise ValueError("c must be >= 0")
+    if not np.isfinite(c) or c < 0:
+        raise ValueError("c must be >= 0 and finite.")
 
     tie_policy = _validate_tie_handling(tie_handling)
 

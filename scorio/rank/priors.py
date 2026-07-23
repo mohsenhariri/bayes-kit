@@ -24,6 +24,23 @@ from collections.abc import Callable
 import numpy as np
 
 
+def _finite_scalar(value: float, name: str) -> float:
+    """Return ``value`` as a finite float, rejecting non-scalar inputs."""
+    if isinstance(value, (bool, np.bool_)) or not isinstance(
+        value, (int, float, np.integer, np.floating)
+    ):
+        raise TypeError(f"{name} must be a finite scalar")
+    try:
+        value = float(value)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(f"{name} must be a finite scalar") from exc
+    except OverflowError as exc:
+        raise ValueError(f"{name} must be finite") from exc
+    if not np.isfinite(value):
+        raise ValueError(f"{name} must be finite")
+    return value
+
+
 class Prior(ABC):
     """
     Abstract interface for prior penalties on log-strength parameters.
@@ -115,13 +132,19 @@ class EmpiricalPrior(Prior):
         Args:
             R0: Prior outcomes, shape ``(L, M, D)`` or ``(L, M)``.
             var: Positive variance around empirical means.
-            eps: Logit clipping constant in ``(0, 0.5)`` recommended.
+            eps: Logit clipping constant strictly in ``(0, 0.5)``.
 
         Raises:
-            ValueError: If ``var <= 0`` or ``R0`` has invalid dimensions.
+            TypeError: If ``var`` or ``eps`` is not a real scalar.
+            ValueError: If a scalar parameter is invalid, or if ``R0`` is
+                empty, non-binary, non-finite, or has invalid dimensions.
         """
+        var = _finite_scalar(var, "Variance")
         if var <= 0:
             raise ValueError("Variance must be positive")
+        eps = _finite_scalar(eps, "eps")
+        if not 0.0 < eps < 0.5:
+            raise ValueError("eps must be strictly between 0 and 0.5")
 
         R0 = np.asarray(R0)
 
@@ -133,6 +156,20 @@ class EmpiricalPrior(Prior):
                 f"R0 must be 2D (L, M) or 3D (L, M, D), got ndim={R0.ndim}"
             )
 
+        if any(size == 0 for size in R0.shape):
+            raise ValueError("R0 must be non-empty in every dimension")
+        if not (
+            np.issubdtype(R0.dtype, np.number) or np.issubdtype(R0.dtype, np.bool_)
+        ):
+            raise ValueError(f"R0 must be numeric, got dtype {R0.dtype}")
+        if np.issubdtype(R0.dtype, np.complexfloating):
+            raise ValueError("R0 must contain real-valued outcomes")
+        if not np.isfinite(R0).all():
+            raise ValueError("R0 must not contain NaN or Inf values")
+        if not np.all((R0 == 0) | (R0 == 1)):
+            raise ValueError("R0 must contain only binary values (0 or 1)")
+
+        R0 = R0.astype(int, copy=False)
         self.R0 = R0
         self.var = var
         self.eps = eps
@@ -169,7 +206,7 @@ class EmpiricalPrior(Prior):
                 f"theta length ({len(theta)}) must match number of models "
                 f"({len(self.prior_mean)})"
             )
-        return ((theta - self.prior_mean) ** 2).sum() / (2 * self.var)
+        return float(((theta - self.prior_mean) ** 2).sum() / (2 * self.var))
 
 
 class GaussianPrior(Prior):
@@ -205,8 +242,12 @@ class GaussianPrior(Prior):
             var: Positive prior variance.
 
         Raises:
-            ValueError: If ``var <= 0``.
+            TypeError: If ``mean`` or ``var`` is not a real scalar.
+            ValueError: If ``mean`` or ``var`` is non-finite, or if
+                ``var <= 0``.
         """
+        mean = _finite_scalar(mean, "Mean")
+        var = _finite_scalar(var, "Variance")
         if var <= 0:
             raise ValueError("Variance must be positive")
         self.mean = mean
@@ -222,7 +263,7 @@ class GaussianPrior(Prior):
         Returns:
             Scalar penalty value.
         """
-        return ((theta - self.mean) ** 2).sum() / (2 * self.var)
+        return float(((theta - self.mean) ** 2).sum() / (2 * self.var))
 
 
 class LaplacePrior(Prior):
@@ -257,8 +298,12 @@ class LaplacePrior(Prior):
             scale: Positive scale.
 
         Raises:
-            ValueError: If ``scale <= 0``.
+            TypeError: If ``loc`` or ``scale`` is not a real scalar.
+            ValueError: If ``loc`` or ``scale`` is non-finite, or if
+                ``scale <= 0``.
         """
+        loc = _finite_scalar(loc, "Location")
+        scale = _finite_scalar(scale, "Scale")
         if scale <= 0:
             raise ValueError("Scale must be positive")
         self.loc = loc
@@ -274,7 +319,7 @@ class LaplacePrior(Prior):
         Returns:
             Scalar penalty value.
         """
-        return np.abs(theta - self.loc).sum() / self.scale
+        return float(np.abs(theta - self.loc).sum() / self.scale)
 
 
 class CauchyPrior(Prior):
@@ -309,8 +354,12 @@ class CauchyPrior(Prior):
             scale: Positive scale.
 
         Raises:
-            ValueError: If ``scale <= 0``.
+            TypeError: If ``loc`` or ``scale`` is not a real scalar.
+            ValueError: If ``loc`` or ``scale`` is non-finite, or if
+                ``scale <= 0``.
         """
+        loc = _finite_scalar(loc, "Location")
+        scale = _finite_scalar(scale, "Scale")
         if scale <= 0:
             raise ValueError("Scale must be positive")
         self.loc = loc
@@ -327,7 +376,7 @@ class CauchyPrior(Prior):
             Scalar penalty value.
         """
         z = (theta - self.loc) / self.scale
-        return np.log1p(z**2).sum()
+        return float(np.log1p(z**2).sum())
 
 
 class UniformPrior(Prior):

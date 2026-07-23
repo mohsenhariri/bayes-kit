@@ -35,13 +35,26 @@ MAP variants with configurable priors, and MML-EAP estimators.
 from typing import Literal, TypeAlias
 
 import numpy as np
-from scipy.optimize import minimize
+from scipy.optimize import linprog, minimize
+from scipy.special import expit, xlog1py, xlogy
 
 from scorio.utils import rank_scores
 
-from ._base import sigmoid, validate_input
+from ._base import (
+    average_equivalent_scores,
+    average_event_exchangeable_scores,
+    sigmoid,
+    validate_input,
+)
 from ._types import RankMethod, RankResult
-from .priors import GaussianPrior, Prior
+from .priors import (
+    CauchyPrior,
+    EmpiricalPrior,
+    GaussianPrior,
+    LaplacePrior,
+    Prior,
+    UniformPrior,
+)
 
 MirtModel: TypeAlias = Literal["2pl", "3pl"]
 DynamicIrtVariant: TypeAlias = Literal["linear", "growth", "state_space"]
@@ -57,6 +70,9 @@ DynamicScoreTargetInput: TypeAlias = Literal[
     "delta",
     "trend",
 ]
+
+_LOG_DISCRIMINATION_BOUND = 8.0
+_MAX_STABLE_IRT_LOCATION = 50.0
 
 
 def _to_binomial_counts(R: np.ndarray) -> tuple[np.ndarray, int]:
@@ -95,6 +111,336 @@ def _coerce_ability_prior(prior: Prior | float) -> Prior:
     raise TypeError(
         f"prior must be a Prior object or float, got {type(prior).__name__}"
     )
+
+
+def _prior_is_exchangeable(prior: Prior) -> bool:
+    """Whether permuting model labels leaves the prior penalty unchanged."""
+    return type(prior) in {GaussianPrior, LaplacePrior, CauchyPrior, UniformPrior}
+
+
+def _prior_gradient(prior: Prior, theta: np.ndarray) -> np.ndarray:
+    """Differentiate built-in priors, with a numerical fallback for extensions."""
+    if type(prior) is GaussianPrior:
+        return (theta - prior.mean) / prior.var
+    if type(prior) is LaplacePrior:
+        return np.sign(theta - prior.loc) / prior.scale
+    if type(prior) is CauchyPrior:
+        z = (theta - prior.loc) / prior.scale
+        return 2.0 * z / (prior.scale * (1.0 + z**2))
+    if type(prior) is UniformPrior:
+        return np.zeros_like(theta)
+    if type(prior) is EmpiricalPrior:
+        return (theta - prior.prior_mean) / prior.var
+
+    gradient = np.empty_like(theta, dtype=float)
+    steps = np.sqrt(np.finfo(float).eps) * np.maximum(1.0, np.abs(theta))
+    for index, step in enumerate(steps):
+        upper = theta.copy()
+        lower = theta.copy()
+        upper[index] += step
+        lower[index] -= step
+        gradient[index] = (prior.penalty(upper) - prior.penalty(lower)) / (2.0 * step)
+    return gradient
+
+
+def _one_pl_equivalence_statistics(k_correct: np.ndarray) -> np.ndarray:
+    """Rasch ability sufficient statistic: total correct count per model."""
+    return k_correct.sum(axis=1, keepdims=True)
+
+
+def _average_item_exchangeable_scores(
+    scores: np.ndarray,
+    k_correct: np.ndarray,
+) -> np.ndarray:
+    """Average exact model orbits under simultaneous model/item relabeling."""
+    return average_event_exchangeable_scores(scores, k_correct)
+
+
+def _require_finite_person_mle(k_correct: np.ndarray, n_trials: int, name: str) -> None:
+    """Reject all-correct/all-wrong rows whose unregularized ability is infinite."""
+    totals = k_correct.sum(axis=1)
+    maximum = float(k_correct.shape[1] * n_trials)
+    if np.any((totals == 0.0) | (totals == maximum)):
+        raise ValueError(
+            f"{name} has no finite ability MLE for an all-correct or all-wrong "
+            "model row; use the corresponding MAP or MML estimator."
+        )
+
+
+def _require_finite_item_estimates(
+    k_correct: np.ndarray, n_trials: int, name: str
+) -> None:
+    """Reject items whose unregularized difficulty estimate is infinite."""
+    totals = k_correct.sum(axis=0)
+    maximum = float(k_correct.shape[0] * n_trials)
+    if np.any((totals == 0.0) | (totals == maximum)):
+        raise ValueError(
+            f"{name} has no finite item-parameter estimate for an all-correct "
+            "or all-wrong question; remove that non-informative question or "
+            "use rasch_mml, which handles boundary items explicitly."
+        )
+
+
+def _require_no_fixed_effect_separation(
+    k_correct: np.ndarray, n_trials: int, name: str
+) -> None:
+    """Reject complete or quasi-separation in person/item logistic effects."""
+    n_models, n_items = k_correct.shape
+    n_parameters = n_models + n_items
+    inequalities: list[np.ndarray] = []
+    equalities: list[np.ndarray] = []
+    objective = np.zeros(n_parameters, dtype=float)
+
+    for model in range(n_models):
+        for item in range(n_items):
+            design = np.zeros(n_parameters, dtype=float)
+            design[model] = 1.0
+            design[n_models + item] = -1.0
+            count = k_correct[model, item]
+            if count == n_trials:
+                inequalities.append(-design)
+                objective -= design
+            elif count == 0.0:
+                inequalities.append(design)
+                objective += design
+            else:
+                equalities.append(design)
+
+    # Remove the common person/item location null direction.
+    location_constraint = np.concatenate([np.zeros(n_models), np.ones(n_items)])
+    equalities.append(location_constraint)
+    result = linprog(
+        objective,
+        A_ub=np.asarray(inequalities) if inequalities else None,
+        b_ub=np.zeros(len(inequalities)) if inequalities else None,
+        A_eq=np.asarray(equalities),
+        b_eq=np.zeros(len(equalities)),
+        bounds=[(-1.0, 1.0)] * n_parameters,
+        method="highs",
+    )
+    if not result.success:
+        raise RuntimeError(f"{name} separation diagnostic failed: {result.message}")
+    if -float(result.fun) > 1e-8:
+        raise ValueError(
+            f"{name} has no finite joint location estimate because the binary "
+            "response pattern is completely or quasi-separated; use a MAP or "
+            "MML estimator with proper regularization."
+        )
+
+
+def _require_optimizer_success(result, model_name: str) -> None:
+    """Reject optimization failures instead of returning an unfinished iterate."""
+    if not result.success or result.x is None or not np.isfinite(result.fun):
+        raise RuntimeError(f"{model_name} optimization failed: {result.message}")
+
+
+def _projected_gradient_norm(
+    result,
+    bounded_slice: slice,
+    lower: float,
+    upper: float,
+) -> float:
+    """Infinity norm after removing gradients blocked by active bounds."""
+    gradient = np.asarray(result.jac, dtype=float).copy()
+    values = np.asarray(result.x[bounded_slice], dtype=float)
+    bounded_gradient = gradient[bounded_slice]
+    tolerance = 1e-8
+    bounded_gradient[(values <= lower + tolerance) & (bounded_gradient > 0.0)] = 0.0
+    bounded_gradient[(values >= upper - tolerance) & (bounded_gradient < 0.0)] = 0.0
+    gradient[bounded_slice] = bounded_gradient
+    return float(np.max(np.abs(gradient)))
+
+
+def _require_stationary_solution(
+    result,
+    bounded_slice: slice,
+    model_name: str,
+    tolerance: float = 5e-4,
+) -> None:
+    """Reject nominal L-BFGS success when the projected gradient is still large."""
+    gradient_norm = _projected_gradient_norm(
+        result,
+        bounded_slice,
+        -_LOG_DISCRIMINATION_BOUND,
+        _LOG_DISCRIMINATION_BOUND,
+    )
+    if not np.isfinite(gradient_norm) or gradient_norm > tolerance:
+        raise RuntimeError(
+            f"{model_name} optimization stopped before reaching a stationary "
+            f"solution (projected gradient {gradient_norm:.3g})."
+        )
+
+
+def _require_stable_irt_location(
+    theta: np.ndarray,
+    beta: np.ndarray,
+    log_a: np.ndarray,
+    model_name: str,
+) -> None:
+    """Reject saturated or search-boundary fits masquerading as finite estimates."""
+    location = np.concatenate([theta, beta])
+    at_discrimination_bound = np.any(np.abs(log_a) >= _LOG_DISCRIMINATION_BOUND - 1e-6)
+    if (
+        not np.isfinite(location).all()
+        or np.max(np.abs(location)) > _MAX_STABLE_IRT_LOCATION
+        or at_discrimination_bound
+    ):
+        raise ValueError(
+            f"{model_name} did not have a stable interior joint estimate; "
+            "ability/difficulty parameters saturated or an item discrimination "
+            "reached the numerical search boundary. Use Rasch MML or an "
+            "estimator with proper priors on every nonidentified parameter."
+        )
+
+
+def _optimize_nonconvex_irt(
+    objective_and_gradient,
+    params_init: np.ndarray,
+    bounds: list[tuple[float | None, float | None]],
+    max_iter: int,
+    n_models: int,
+    n_items: int,
+    k_correct: np.ndarray,
+    model_name: str,
+    exchangeable: bool = True,
+):
+    """Fit 2PL/3PL models and audit suspicious solutions with equivariant starts."""
+    discrimination_slice = slice(n_models + n_items, n_models + 2 * n_items)
+    options = {
+        "maxiter": max_iter,
+        "ftol": 1e-14,
+        "gtol": 1e-9,
+        "maxls": 100,
+        "maxcor": 30,
+    }
+
+    def run(start: np.ndarray):
+        result = minimize(
+            objective_and_gradient,
+            start,
+            jac=True,
+            method="L-BFGS-B",
+            bounds=bounds,
+            options=options,
+        )
+        _require_optimizer_success(result, model_name)
+        projected_gradient = _projected_gradient_norm(
+            result,
+            discrimination_slice,
+            -_LOG_DISCRIMINATION_BOUND,
+            _LOG_DISCRIMINATION_BOUND,
+        )
+        remaining_iter = max_iter - int(result.nit)
+        if projected_gradient > 5e-4 and remaining_iter > 0:
+            continuation_options = dict(options)
+            continuation_options["maxiter"] = remaining_iter
+            result = minimize(
+                objective_and_gradient,
+                result.x,
+                jac=True,
+                method="L-BFGS-B",
+                bounds=bounds,
+                options=continuation_options,
+            )
+            _require_optimizer_success(result, model_name)
+        _require_stationary_solution(result, discrimination_slice, model_name)
+        return result
+
+    def components(result) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        theta = np.asarray(result.x[:n_models])
+        beta = np.asarray(result.x[n_models : n_models + n_items])
+        beta = beta - beta.mean()
+        log_a = np.asarray(result.x[discrimination_slice])
+        return theta, beta, log_a
+
+    base_result = run(params_init)
+    base_theta, base_beta, base_log_a = components(base_result)
+    _require_stable_irt_location(base_theta, base_beta, base_log_a, model_name)
+    adjusted_theta = (
+        _average_item_exchangeable_scores(base_theta, k_correct)
+        if exchangeable
+        else base_theta
+    )
+    orbit_probe = np.arange(n_models, dtype=float)
+    has_nontrivial_automorphism = exchangeable and not np.array_equal(
+        _average_item_exchangeable_scores(orbit_probe, k_correct), orbit_probe
+    )
+    suspicious = (
+        np.max(np.abs(base_log_a)) > 4.0
+        or np.max(np.abs(np.concatenate([base_theta, base_beta]))) > 10.0
+        or np.max(np.abs(adjusted_theta - base_theta)) > 1e-4
+        or has_nontrivial_automorphism
+    )
+    if not suspicious:
+        return base_result
+
+    centered_counts = k_correct - k_correct.mean(axis=0, keepdims=True)
+    gram = centered_counts @ centered_counts.T
+    eigenvalues, eigenvectors = np.linalg.eigh(gram)
+    largest = float(eigenvalues[-1])
+    directions: list[np.ndarray] = []
+    if largest > np.finfo(float).eps:
+        eigenspace = eigenvectors[:, eigenvalues >= largest - 1e-10 * max(1.0, largest)]
+        projector = eigenspace @ eigenspace.T
+        for column in projector.T:
+            norm = float(np.linalg.norm(column))
+            if norm <= 1e-10:
+                continue
+            direction = column / norm
+            if any(
+                np.allclose(direction, prior_direction, atol=1e-10, rtol=1e-10)
+                or np.allclose(direction, -prior_direction, atol=1e-10, rtol=1e-10)
+                for prior_direction in directions
+            ):
+                continue
+            directions.append(direction)
+
+    candidates = [base_result]
+    for direction in directions:
+        for sign in (-1.0, 1.0):
+            start = params_init.copy()
+            start[:n_models] += sign * direction
+            try:
+                candidate = run(start)
+                theta, beta, log_a = components(candidate)
+                _require_stable_irt_location(theta, beta, log_a, model_name)
+            except (RuntimeError, ValueError):
+                continue
+            candidates.append(candidate)
+
+    best_value = min(float(candidate.fun) for candidate in candidates)
+    objective_tolerance = 1e-7 * max(1.0, abs(best_value))
+    near_best = [
+        candidate
+        for candidate in candidates
+        if float(candidate.fun) <= best_value + objective_tolerance
+    ]
+
+    candidate_rankings: set[tuple[float, ...]] = set()
+    for candidate in near_best:
+        theta, _, _ = components(candidate)
+        if exchangeable:
+            theta = _average_item_exchangeable_scores(theta, k_correct)
+        candidate_rankings.add(tuple(rank_scores(theta)["competition"]))
+    if len(candidate_rankings) > 1:
+        raise ValueError(
+            f"{model_name} has multiple equally good nonconvex solutions that "
+            "imply different rankings; the ranking is not identified. Use a "
+            "Rasch or MML estimator, or report a sensitivity analysis."
+        )
+
+    def invariant_tie_break(candidate) -> tuple[float, tuple[float, ...]]:
+        theta, beta, log_a = components(candidate)
+        norm = float(np.linalg.norm(candidate.x))
+        signature = tuple(
+            np.round(
+                np.concatenate([np.sort(theta), np.sort(beta), np.sort(log_a)]),
+                decimals=10,
+            )
+        )
+        return norm, signature
+
+    return min(near_best, key=invariant_tie_break)
 
 
 def _validate_nonnegative_float(name: str, value: float) -> float:
@@ -248,18 +594,25 @@ def rasch(
         >>> import numpy as np
         >>> from scorio import rank
         >>> R = np.array([
-        ...     [[1, 1], [1, 1]],
-        ...     [[0, 0], [0, 0]],
+        ...     [1, 0, 0, 1],
+        ...     [0, 1, 0, 0],
+        ...     [0, 0, 1, 0],
         ... ])
         >>> ranks, scores = rank.rasch(R, return_scores=True)
         >>> ranks.tolist()
-        [1, 2]
+        [1, 2, 2]
+
+    Notes:
+        Joint MLE is finite only without complete or quasi-separation. Such
+        data, including all-correct/all-wrong model rows or item columns, raises
+        ``ValueError``; use a proper MAP ability prior for extreme model rows,
+        or MML for boundary items.
     """
     max_iter = _validate_positive_int("max_iter", max_iter)
     k_correct, n_trials = _to_binomial_counts(R)
 
     theta, beta = _estimate_rasch_abilities(k_correct, n_trials, max_iter=max_iter)
-    scores = theta
+    scores = average_equivalent_scores(theta, _one_pl_equivalence_statistics(k_correct))
 
     ranking = rank_scores(scores)[method]
     if return_item_params:
@@ -334,6 +687,10 @@ def rasch_map(
         k_correct, n_trials, prior, max_iter=max_iter
     )
     scores = theta
+    if _prior_is_exchangeable(prior):
+        scores = average_equivalent_scores(
+            scores, _one_pl_equivalence_statistics(k_correct)
+        )
 
     ranking = rank_scores(scores)[method]
     if return_item_params:
@@ -354,7 +711,7 @@ def rasch_2pl(
     | tuple[np.ndarray, np.ndarray, dict[str, np.ndarray]]
 ):
     """
-    Rank models with 2PL IRT via joint (optionally regularized) JMLE.
+    Rank models with 2PL IRT via regularized joint likelihood estimation.
 
     Method context:
         Extends Rasch with item discrimination ``a_m > 0``, so items can differ
@@ -369,8 +726,8 @@ def rasch_2pl(
         max_iter: Positive maximum number of L-BFGS iterations.
         return_item_params: If True, also returns estimated item parameters
             (difficulty and discrimination). Implies returning scores.
-        reg_discrimination: Non-negative L2 penalty weight on ``log(a)``.
-            Set to ``0.0`` for pure (unpenalized) JMLE.
+        reg_discrimination: Positive L2 penalty weight on ``log(a)``. It fixes
+            the otherwise unidentified ability/discrimination scale.
 
     Returns:
         Ranking array of shape ``(L,)``.
@@ -392,16 +749,28 @@ def rasch_2pl(
         >>> import numpy as np
         >>> from scorio import rank
         >>> R = np.array([
-        ...     [[1, 1], [1, 1]],
-        ...     [[0, 0], [0, 0]],
+        ...     [1, 0, 0, 1],
+        ...     [0, 1, 0, 0],
+        ...     [0, 0, 1, 0],
         ... ])
         >>> rank.rasch_2pl(R).tolist()
-        [1, 2]
+        [1, 2, 2]
+
+    Notes:
+        Separated response patterns have no finite joint estimate and raise
+        ``ValueError``. The 2PL objective is nonconvex; weak fits are checked
+        from label-equivariant starts and raise when equally good solutions
+        imply different rankings.
     """
     max_iter = _validate_positive_int("max_iter", max_iter)
     reg_discrimination = _validate_nonnegative_float(
         "reg_discrimination", reg_discrimination
     )
+    if reg_discrimination == 0.0:
+        raise ValueError(
+            "reg_discrimination must be positive for 2PL joint estimation; "
+            "without it, the ability/discrimination scale is not identified."
+        )
     k_correct, n_trials = _to_binomial_counts(R)
 
     theta, beta, a = _estimate_2pl_abilities(
@@ -410,7 +779,7 @@ def rasch_2pl(
         max_iter=max_iter,
         reg_discrimination=reg_discrimination,
     )
-    scores = theta
+    scores = _average_item_exchangeable_scores(theta, k_correct)
 
     ranking = rank_scores(scores)[method]
     if return_item_params:
@@ -482,6 +851,8 @@ def rasch_2pl_map(
         reg_discrimination=reg_discrimination,
     )
     scores = theta
+    if _prior_is_exchangeable(prior):
+        scores = _average_item_exchangeable_scores(scores, k_correct)
 
     ranking = rank_scores(scores)[method]
     if return_item_params:
@@ -542,10 +913,11 @@ def dynamic_irt(
         score_target: Longitudinal score extracted from ability paths for
             ranking in growth and state-space variants. One of
             ``{"initial", "final", "mean", "gain"}``.
-        slope_reg: Non-negative L2 regularization weight on growth slopes.
-            Used only for ``variant="growth"``.
-        state_reg: Non-negative random-walk smoothness penalty in
-            ``variant="state_space"``.
+        slope_reg: Positive L2 regularization weight on growth slopes, used
+            only for ``variant="growth"``. Since time is normalized to
+            ``[0, 1]``, a fitted slope is change over the observed time span.
+        state_reg: Positive random-walk smoothness penalty in
+            ``variant="state_space"``; it must be positive for that variant.
         assume_time_axis: Safety switch for longitudinal variants.
             Set ``True`` to acknowledge that axis-2 of ``R`` is ordered time,
             not i.i.d. sampling trials.
@@ -565,6 +937,12 @@ def dynamic_irt(
             P(R_{lmn}=1)
             = \\sigma\\left(\\theta_{0,l} + \\theta_{1,l} t_n - b_m\\right)
 
+    Notes:
+        Longitudinal variants require at least two ordered time points. The
+        state-space objective includes a weak ``1e-3 * sum(theta[:, 0]**2)``
+        Gaussian anchor on initial abilities in addition to random-walk
+        smoothing.
+
     References:
         Verhelst, N. D., & Glas, C. A. (1993). A dynamic generalization
         of the Rasch model. Psychometrika.
@@ -577,17 +955,20 @@ def dynamic_irt(
         >>> import numpy as np
         >>> from scorio import rank
         >>> R = np.array([
-        ...     [[1, 1, 1], [1, 1, 1]],
-        ...     [[0, 0, 0], [0, 0, 0]],
+        ...     [1, 0, 0, 1],
+        ...     [0, 1, 0, 0],
+        ...     [0, 0, 1, 0],
         ... ])
         >>> rank.dynamic_irt(R, variant="linear").tolist()
-        [1, 2]
+        [1, 2, 2]
     """
     max_iter = _validate_positive_int("max_iter", max_iter)
     variant_name = str(variant).strip().lower()
     R = validate_input(R)
     k_correct = R.sum(axis=2, dtype=float)
     n_trials = int(R.shape[2])
+    if variant_name != "linear":
+        _require_finite_item_estimates(k_correct, n_trials, "Dynamic IRT")
     score_target_name = _validate_dynamic_score_target(score_target)
     slope_reg = _validate_nonnegative_float("slope_reg", slope_reg)
     state_reg = _validate_nonnegative_float("state_reg", state_reg)
@@ -599,6 +980,8 @@ def dynamic_irt(
                 "('growth' and 'state_space')."
             )
         theta, beta = _estimate_rasch_abilities(k_correct, n_trials, max_iter=max_iter)
+        equivalence_statistic = _one_pl_equivalence_statistics(k_correct)
+        theta = average_equivalent_scores(theta, equivalence_statistic)
         scores = theta
 
     elif variant_name == "growth":
@@ -607,6 +990,17 @@ def dynamic_irt(
                 "variant='growth' interprets axis-2 as ordered longitudinal time. "
                 "Set assume_time_axis=True to proceed."
             )
+        if n_trials < 2:
+            raise ValueError(
+                "Longitudinal dynamic IRT requires at least two time points."
+            )
+        if slope_reg == 0.0:
+            raise ValueError(
+                "slope_reg must be positive for variant='growth' so temporal "
+                "separation cannot produce an infinite slope estimate."
+            )
+        _require_finite_person_mle(k_correct, n_trials, "Dynamic growth IRT")
+        _require_no_fixed_effect_separation(k_correct, n_trials, "Dynamic growth IRT")
         raw_time, time_unit = _validate_time_points(time_points, n_trials)
         theta0, theta1, beta = _estimate_growth_model_abilities(
             R,
@@ -614,6 +1008,12 @@ def dynamic_irt(
             max_iter=max_iter,
             slope_reg=slope_reg,
         )
+        correct_by_time = R.sum(axis=1, dtype=float)
+        equivalence_statistic = np.column_stack(
+            [correct_by_time.sum(axis=1), correct_by_time @ time_unit]
+        )
+        theta0 = average_equivalent_scores(theta0, equivalence_statistic)
+        theta1 = average_equivalent_scores(theta1, equivalence_statistic)
         theta_path = theta0[:, None] + theta1[:, None] * time_unit[None, :]
         scores = _score_dynamic_path(theta_path, score_target_name)
     elif variant_name == "state_space":
@@ -622,6 +1022,15 @@ def dynamic_irt(
                 "variant='state_space' interprets axis-2 as ordered longitudinal "
                 "time. Set assume_time_axis=True to proceed."
             )
+        if n_trials < 2:
+            raise ValueError(
+                "Longitudinal dynamic IRT requires at least two time points."
+            )
+        if state_reg == 0.0:
+            raise ValueError(
+                "state_reg must be positive for variant='state_space' so each "
+                "latent trajectory has a proper random-walk penalty."
+            )
         raw_time, time_unit = _validate_time_points(time_points, n_trials)
         theta_path, beta = _estimate_state_space_abilities(
             R,
@@ -629,6 +1038,11 @@ def dynamic_irt(
             max_iter=max_iter,
             state_reg=state_reg,
         )
+        equivalence_statistic = R.sum(axis=1)
+        for time_index in range(theta_path.shape[1]):
+            theta_path[:, time_index] = average_equivalent_scores(
+                theta_path[:, time_index], equivalence_statistic
+            )
         scores = _score_dynamic_path(theta_path, score_target_name)
     else:
         raise ValueError(
@@ -676,21 +1090,23 @@ def _estimate_rasch_abilities(
         n_trials: Number of trials per (model, item).
     """
     L, M = k_correct.shape
+    _require_finite_person_mle(k_correct, n_trials, "Rasch")
+    _require_finite_item_estimates(k_correct, n_trials, "Rasch")
+    _require_no_fixed_effect_separation(k_correct, n_trials, "Rasch")
 
-    def negative_log_likelihood(params):
+    def objective_and_gradient(params):
         theta = params[:L]
         beta = params[L:]
         beta = beta - beta.mean()  # Identifiability constraint
 
-        # P(correct) = sigmoid(theta - beta)
         diff = theta[:, None] - beta[None, :]  # (L, M)
-        prob = sigmoid(diff)
-        prob = np.clip(prob, 1e-10, 1 - 1e-10)
-
-        nll = -np.sum(
-            k_correct * np.log(prob) + (n_trials - k_correct) * np.log(1 - prob)
-        )
-        return nll
+        prob = expit(diff)
+        nll = np.sum(n_trials * np.logaddexp(0.0, diff) - k_correct * diff)
+        residual = n_trials * prob - k_correct
+        grad_theta = residual.sum(axis=1)
+        grad_beta = -residual.sum(axis=0)
+        grad_beta -= grad_beta.mean()
+        return float(nll), np.concatenate([grad_theta, grad_beta])
 
     # Initialize from observed proportions
     p_lm = np.clip((k_correct + 0.5) / (n_trials + 1.0), 1e-6, 1 - 1e-6)
@@ -702,11 +1118,13 @@ def _estimate_rasch_abilities(
     params_init = np.concatenate([theta_init, beta_init])
 
     result = minimize(
-        negative_log_likelihood,
+        objective_and_gradient,
         params_init,
+        jac=True,
         method="L-BFGS-B",
-        options={"maxiter": max_iter},
+        options={"maxiter": max_iter, "ftol": 1e-12, "gtol": 1e-8},
     )
+    _require_optimizer_success(result, "rasch")
 
     theta = result.x[:L]
     beta = result.x[L:]
@@ -726,27 +1144,27 @@ def _estimate_rasch_abilities_map(
         prior: Prior distribution on ability parameters.
         max_iter: Maximum optimization iterations.
     """
-    L, M = k_correct.shape
+    if type(prior) is UniformPrior:
+        return _estimate_rasch_abilities(k_correct, n_trials, max_iter=max_iter)
 
-    def negative_log_posterior(params):
+    L, M = k_correct.shape
+    _require_finite_item_estimates(k_correct, n_trials, "Rasch MAP")
+
+    def objective_and_gradient(params):
         theta = params[:L]
         beta = params[L:]
         beta = beta - beta.mean()  # Identifiability constraint
 
-        # P(correct) = sigmoid(theta - beta)
         diff = theta[:, None] - beta[None, :]  # (L, M)
-        prob = sigmoid(diff)
-        prob = np.clip(prob, 1e-10, 1 - 1e-10)
-
-        # Negative log-likelihood
-        nll = -np.sum(
-            k_correct * np.log(prob) + (n_trials - k_correct) * np.log(1 - prob)
+        prob = expit(diff)
+        nll = np.sum(n_trials * np.logaddexp(0.0, diff) - k_correct * diff)
+        residual = n_trials * prob - k_correct
+        grad_theta = residual.sum(axis=1) + _prior_gradient(prior, theta)
+        grad_beta = -residual.sum(axis=0)
+        grad_beta -= grad_beta.mean()
+        return float(nll + prior.penalty(theta)), np.concatenate(
+            [grad_theta, grad_beta]
         )
-
-        # Prior penalty on abilities (negative log-prior)
-        prior_penalty = prior.penalty(theta)
-
-        return nll + prior_penalty
 
     # Initialize from observed proportions
     p_lm = np.clip((k_correct + 0.5) / (n_trials + 1.0), 1e-6, 1 - 1e-6)
@@ -758,11 +1176,13 @@ def _estimate_rasch_abilities_map(
     params_init = np.concatenate([theta_init, beta_init])
 
     result = minimize(
-        negative_log_posterior,
+        objective_and_gradient,
         params_init,
+        jac=True,
         method="L-BFGS-B",
-        options={"maxiter": max_iter},
+        options={"maxiter": max_iter, "ftol": 1e-12, "gtol": 1e-8},
     )
+    _require_optimizer_success(result, "rasch_map")
 
     theta = result.x[:L]
     beta = result.x[L:]
@@ -779,30 +1199,36 @@ def _estimate_2pl_abilities(
     """
     Estimate 2PL abilities via JMLE.
     """
+    if reg_discrimination <= 0.0:
+        raise ValueError(
+            "reg_discrimination must be positive for an identified 2PL joint fit."
+        )
     L, M = k_correct.shape
+    _require_finite_person_mle(k_correct, n_trials, "2PL")
+    _require_finite_item_estimates(k_correct, n_trials, "2PL")
+    _require_no_fixed_effect_separation(k_correct, n_trials, "2PL")
 
-    def negative_log_likelihood(params):
+    def objective_and_gradient(params):
         theta = params[:L]
         beta = params[L : L + M]
         log_a = params[L + M :]
 
         beta = beta - beta.mean()
-        a = np.exp(np.clip(log_a, -3, 3))  # Discrimination in reasonable range
+        a = np.exp(log_a)
 
-        # P(correct) = sigmoid(a * (theta - beta))
         diff = theta[:, None] - beta[None, :]
         logit = a[None, :] * diff
-        prob = sigmoid(logit)
-        prob = np.clip(prob, 1e-10, 1 - 1e-10)
-
-        nll = -np.sum(
-            k_correct * np.log(prob) + (n_trials - k_correct) * np.log(1 - prob)
-        )
-
-        # Optional regularization on discrimination.
+        prob = expit(logit)
+        nll = np.sum(n_trials * np.logaddexp(0.0, logit) - k_correct * logit)
         nll += reg_discrimination * np.sum(log_a**2)
 
-        return nll
+        residual = n_trials * prob - k_correct
+        grad_theta = np.sum(residual * a[None, :], axis=1)
+        grad_beta = -a * residual.sum(axis=0)
+        grad_beta -= grad_beta.mean()
+        grad_log_a = np.sum(residual * logit, axis=0)
+        grad_log_a += 2.0 * reg_discrimination * log_a
+        return float(nll), np.concatenate([grad_theta, grad_beta, grad_log_a])
 
     # Initialize
     p_lm = np.clip((k_correct + 0.5) / (n_trials + 1.0), 1e-6, 1 - 1e-6)
@@ -814,17 +1240,26 @@ def _estimate_2pl_abilities(
     log_a_init = np.zeros(M)  # Start with discrimination = 1
     params_init = np.concatenate([theta_init, beta_init, log_a_init])
 
-    result = minimize(
-        negative_log_likelihood,
+    bounds = [(None, None)] * (L + M) + [
+        (-_LOG_DISCRIMINATION_BOUND, _LOG_DISCRIMINATION_BOUND)
+    ] * M
+    result = _optimize_nonconvex_irt(
+        objective_and_gradient,
         params_init,
-        method="L-BFGS-B",
-        options={"maxiter": max_iter},
+        bounds,
+        max_iter,
+        L,
+        M,
+        k_correct,
+        "rasch_2pl",
     )
 
     theta = result.x[:L]
     beta = result.x[L : L + M]
     beta = beta - beta.mean()
-    a = np.exp(np.clip(result.x[L + M :], -3, 3))
+    log_a = result.x[L + M :]
+    _require_stable_irt_location(theta, beta, log_a, "rasch_2pl")
+    a = np.exp(log_a)
     return theta, beta, a
 
 
@@ -844,34 +1279,40 @@ def _estimate_2pl_abilities_map(
         prior: Prior distribution on ability parameters.
         max_iter: Maximum optimization iterations.
     """
-    L, M = k_correct.shape
+    if type(prior) is UniformPrior:
+        return _estimate_2pl_abilities(
+            k_correct,
+            n_trials,
+            max_iter=max_iter,
+            reg_discrimination=reg_discrimination,
+        )
 
-    def negative_log_posterior(params):
+    L, M = k_correct.shape
+    _require_finite_item_estimates(k_correct, n_trials, "2PL MAP")
+
+    def objective_and_gradient(params):
         theta = params[:L]
         beta = params[L : L + M]
         log_a = params[L + M :]
 
         beta = beta - beta.mean()
-        a = np.exp(np.clip(log_a, -3, 3))  # Discrimination in reasonable range
+        a = np.exp(log_a)
 
-        # P(correct) = sigmoid(a * (theta - beta))
         diff = theta[:, None] - beta[None, :]
         logit = a[None, :] * diff
-        prob = sigmoid(logit)
-        prob = np.clip(prob, 1e-10, 1 - 1e-10)
-
-        # Negative log-likelihood
-        nll = -np.sum(
-            k_correct * np.log(prob) + (n_trials - k_correct) * np.log(1 - prob)
-        )
-
-        # Optional regularization on discrimination.
+        prob = expit(logit)
+        nll = np.sum(n_trials * np.logaddexp(0.0, logit) - k_correct * logit)
         nll += reg_discrimination * np.sum(log_a**2)
+        nll += prior.penalty(theta)
 
-        # Prior penalty on abilities (negative log-prior)
-        prior_penalty = prior.penalty(theta)
-
-        return nll + prior_penalty
+        residual = n_trials * prob - k_correct
+        grad_theta = np.sum(residual * a[None, :], axis=1)
+        grad_theta += _prior_gradient(prior, theta)
+        grad_beta = -a * residual.sum(axis=0)
+        grad_beta -= grad_beta.mean()
+        grad_log_a = np.sum(residual * logit, axis=0)
+        grad_log_a += 2.0 * reg_discrimination * log_a
+        return float(nll), np.concatenate([grad_theta, grad_beta, grad_log_a])
 
     # Initialize
     p_lm = np.clip((k_correct + 0.5) / (n_trials + 1.0), 1e-6, 1 - 1e-6)
@@ -883,17 +1324,27 @@ def _estimate_2pl_abilities_map(
     log_a_init = np.zeros(M)  # Start with discrimination = 1
     params_init = np.concatenate([theta_init, beta_init, log_a_init])
 
-    result = minimize(
-        negative_log_posterior,
+    bounds = [(None, None)] * (L + M) + [
+        (-_LOG_DISCRIMINATION_BOUND, _LOG_DISCRIMINATION_BOUND)
+    ] * M
+    result = _optimize_nonconvex_irt(
+        objective_and_gradient,
         params_init,
-        method="L-BFGS-B",
-        options={"maxiter": max_iter},
+        bounds,
+        max_iter,
+        L,
+        M,
+        k_correct,
+        "rasch_2pl_map",
+        exchangeable=_prior_is_exchangeable(prior),
     )
 
     theta = result.x[:L]
     beta = result.x[L : L + M]
     beta = beta - beta.mean()
-    a = np.exp(np.clip(result.x[L + M :], -3, 3))
+    log_a = result.x[L + M :]
+    _require_stable_irt_location(theta, beta, log_a, "rasch_2pl_map")
+    a = np.exp(log_a)
     return theta, beta, a
 
 
@@ -925,7 +1376,7 @@ def _estimate_growth_model_abilities(
         R: Binary tensor of shape (L, M, N).
         time_unit: Normalized time points in ``[0, 1]`` with shape ``(N,)``.
         max_iter: Maximum iterations for optimization.
-        slope_reg: Non-negative L2 penalty on growth slopes.
+        slope_reg: Positive L2 penalty on growth slopes.
 
     Returns:
         Tuple of:
@@ -958,7 +1409,7 @@ def _estimate_growth_model_abilities(
     params_init = np.concatenate([theta0_init, theta1_init, beta_init])
     R_float = R.astype(float, copy=False)
 
-    def negative_log_likelihood(params: np.ndarray) -> float:
+    def objective_and_gradient(params: np.ndarray):
         theta0 = params[:L]
         theta1 = params[L : 2 * L]
         beta = params[2 * L :]
@@ -969,21 +1420,27 @@ def _estimate_growth_model_abilities(
             + theta1[:, None, None] * time_unit[None, None, :]
             - beta[None, :, None]
         )
-        prob = sigmoid(diff)
-        prob = np.clip(prob, 1e-10, 1 - 1e-10)
-
-        nll = -np.sum(R_float * np.log(prob) + (1 - R_float) * np.log(1 - prob))
+        prob = expit(diff)
+        nll = np.sum(np.logaddexp(0.0, diff) - R_float * diff)
 
         # Weak Gaussian prior on slopes for stable longitudinal estimation.
         nll += slope_reg * np.sum(theta1**2)
-        return float(nll)
+        residual = prob - R_float
+        grad_theta0 = residual.sum(axis=(1, 2))
+        grad_theta1 = np.sum(residual * time_unit[None, None, :], axis=(1, 2))
+        grad_theta1 += 2.0 * slope_reg * theta1
+        grad_beta = -residual.sum(axis=(0, 2))
+        grad_beta -= grad_beta.mean()
+        return float(nll), np.concatenate([grad_theta0, grad_theta1, grad_beta])
 
     result = minimize(
-        negative_log_likelihood,
+        objective_and_gradient,
         params_init,
+        jac=True,
         method="L-BFGS-B",
-        options={"maxiter": max_iter},
+        options={"maxiter": max_iter, "ftol": 1e-12, "gtol": 1e-8},
     )
+    _require_optimizer_success(result, "dynamic_irt growth")
 
     theta0 = result.x[:L]
     theta1 = result.x[L : 2 * L]
@@ -1012,7 +1469,7 @@ def _estimate_state_space_abilities(
         R: Binary tensor of shape (L, M, N).
         time_unit: Normalized time points in ``[0, 1]`` with shape ``(N,)``.
         max_iter: Maximum iterations for optimization.
-        state_reg: Non-negative smoothness penalty on temporal differences.
+        state_reg: Positive smoothness penalty on temporal differences.
     """
     R = validate_input(R)
     L, M, N = R.shape
@@ -1038,32 +1495,40 @@ def _estimate_state_space_abilities(
     R_float = R.astype(float, copy=False)
     dt = np.diff(time_unit)
 
-    def negative_log_posterior(params: np.ndarray) -> float:
+    def objective_and_gradient(params: np.ndarray):
         theta = params[: L * N].reshape(L, N)
         beta = params[L * N :]
         beta = beta - beta.mean()
 
         diff = theta[:, None, :] - beta[None, :, None]
-        prob = sigmoid(diff)
-        prob = np.clip(prob, 1e-10, 1 - 1e-10)
-
-        nll = -np.sum(R_float * np.log(prob) + (1 - R_float) * np.log(1 - prob))
+        prob = expit(diff)
+        nll = np.sum(np.logaddexp(0.0, diff) - R_float * diff)
+        residual = prob - R_float
+        grad_theta = residual.sum(axis=1)
 
         # Random-walk (Brownian-motion) smoothness over irregular or regular grids:
         # penalize squared increments scaled by the time step.
-        step = (theta[:, 1:] - theta[:, :-1]) / np.sqrt(dt)[None, :]
-        nll += state_reg * np.sum(step**2)
+        increments = theta[:, 1:] - theta[:, :-1]
+        nll += state_reg * np.sum(increments**2 / dt[None, :])
+        increment_gradient = 2.0 * state_reg * increments / dt[None, :]
+        grad_theta[:, 1:] += increment_gradient
+        grad_theta[:, :-1] -= increment_gradient
 
         # Weak anchoring for identifiability and numerical stability.
         nll += 1e-3 * np.sum(theta[:, 0] ** 2)
-        return float(nll)
+        grad_theta[:, 0] += 2e-3 * theta[:, 0]
+        grad_beta = -residual.sum(axis=(0, 2))
+        grad_beta -= grad_beta.mean()
+        return float(nll), np.concatenate([grad_theta.ravel(), grad_beta])
 
     result = minimize(
-        negative_log_posterior,
+        objective_and_gradient,
         params_init,
+        jac=True,
         method="L-BFGS-B",
-        options={"maxiter": max_iter},
+        options={"maxiter": max_iter, "ftol": 1e-12, "gtol": 1e-8},
     )
+    _require_optimizer_success(result, "dynamic_irt state_space")
 
     theta_path = result.x[: L * N].reshape(L, N)
     beta = result.x[L * N :]
@@ -1087,7 +1552,7 @@ def rasch_3pl(
     | tuple[np.ndarray, np.ndarray, dict[str, np.ndarray]]
 ):
     """
-    Rank models with 3PL IRT via joint (optionally regularized) JMLE.
+    Rank models with 3PL IRT via regularized joint likelihood estimation.
 
     Method context:
         Extends 2PL with item-specific pseudo-guessing ``c_m``. Estimated
@@ -1105,10 +1570,11 @@ def rasch_3pl(
             for all questions; must lie in ``[0, guessing_upper]``.
         return_item_params: If True, also returns estimated item parameters.
             Implies returning scores.
-        reg_discrimination: Non-negative L2 penalty weight on ``log(a)``.
-            Set to ``0.0`` for pure (unpenalized) JMLE.
+        reg_discrimination: Positive L2 penalty weight on ``log(a)``. It fixes
+            the otherwise unidentified ability/discrimination scale.
         reg_guessing: Non-negative L2 penalty weight on guessing logits.
-            Set to ``0.0`` for pure (unpenalized) JMLE.
+            It must be positive when guessing is estimated; it may be zero
+            when ``fix_guessing`` is supplied.
         guessing_upper: Upper bound for item guessing ``c_m``. Must be in
             ``(0, 1)``. Default ``0.5`` is suitable for binary outcomes.
 
@@ -1133,12 +1599,19 @@ def rasch_3pl(
     Examples:
         >>> import numpy as np
         >>> from scorio import rank
-        >>> R = np.array([
-        ...     [[1, 1], [1, 1]],
-        ...     [[0, 0], [0, 0]],
-        ... ])
-        >>> rank.rasch_3pl(R, fix_guessing=0.25).tolist()
-        [1, 2]
+        >>> rng = np.random.default_rng(0)
+        >>> theta = np.linspace(1.0, -1.0, 6)
+        >>> beta = np.linspace(-1.2, 1.2, 8)
+        >>> p = 0.2 + 0.8 / (1 + np.exp(-(theta[:, None] - beta[None, :])))
+        >>> R = rng.binomial(1, p[:, :, None], size=(6, 8, 10))
+        >>> rank.rasch_3pl(R, fix_guessing=0.2, max_iter=1000).shape
+        (6,)
+
+    Notes:
+        Separated or saturated response patterns raise ``ValueError`` rather
+        than returning a finite boundary proxy. The 3PL objective is nonconvex;
+        weak fits are checked from label-equivariant starts and raise when
+        equally good solutions imply different rankings.
     """
     max_iter = _validate_positive_int("max_iter", max_iter)
     reg_discrimination = _validate_nonnegative_float(
@@ -1147,6 +1620,16 @@ def rasch_3pl(
     reg_guessing = _validate_nonnegative_float("reg_guessing", reg_guessing)
     guessing_upper = _validate_guessing_upper(guessing_upper)
     fix_guessing = _validate_fix_guessing(fix_guessing, guessing_upper)
+    if reg_discrimination == 0.0:
+        raise ValueError(
+            "reg_discrimination must be positive for 3PL joint estimation; "
+            "without it, the ability/discrimination scale is not identified."
+        )
+    if fix_guessing is None and reg_guessing == 0.0:
+        raise ValueError(
+            "reg_guessing must be positive when 3PL guessing parameters are "
+            "estimated, so boundary guessing logits cannot diverge."
+        )
     k_correct, n_trials = _to_binomial_counts(R)
 
     theta, beta, a, c = _estimate_3pl_abilities(
@@ -1158,7 +1641,7 @@ def rasch_3pl(
         reg_guessing=reg_guessing,
         guessing_upper=guessing_upper,
     )
-    scores = theta
+    scores = _average_item_exchangeable_scores(theta, k_correct)
 
     ranking = rank_scores(scores)[method]
     if return_item_params:
@@ -1223,6 +1706,11 @@ def rasch_3pl_map(
     reg_guessing = _validate_nonnegative_float("reg_guessing", reg_guessing)
     guessing_upper = _validate_guessing_upper(guessing_upper)
     fix_guessing = _validate_fix_guessing(fix_guessing, guessing_upper)
+    if fix_guessing is None and reg_guessing == 0.0:
+        raise ValueError(
+            "reg_guessing must be positive when 3PL guessing parameters are "
+            "estimated, so boundary guessing logits cannot diverge."
+        )
     k_correct, n_trials = _to_binomial_counts(R)
     prior = _coerce_ability_prior(prior)
 
@@ -1237,6 +1725,8 @@ def rasch_3pl_map(
         guessing_upper=guessing_upper,
     )
     scores = theta
+    if _prior_is_exchangeable(prior):
+        scores = _average_item_exchangeable_scores(scores, k_correct)
 
     ranking = rank_scores(scores)[method]
     if return_item_params:
@@ -1269,40 +1759,59 @@ def _estimate_3pl_abilities(
         reg_guessing: L2 penalty weight on guessing logits.
         guessing_upper: Upper bound for estimated guessing parameters.
     """
+    if reg_discrimination <= 0.0:
+        raise ValueError(
+            "reg_discrimination must be positive for an identified 3PL joint fit."
+        )
+    if fix_guessing is None and reg_guessing <= 0.0:
+        raise ValueError(
+            "reg_guessing must be positive when 3PL guessing is estimated."
+        )
     L, M = k_correct.shape
+    _require_finite_person_mle(k_correct, n_trials, "3PL")
+    _require_finite_item_estimates(k_correct, n_trials, "3PL")
+    _require_no_fixed_effect_separation(k_correct, n_trials, "3PL")
 
-    def negative_log_likelihood(params):
+    def objective_and_gradient(params):
         theta = params[:L]
         beta = params[L : L + M]
         log_a = params[L + M : L + 2 * M]
 
         if fix_guessing is None:
-            # Estimate guessing parameters using a bounded logit transform.
             logit_c = params[L + 2 * M :]
-            c = guessing_upper * sigmoid(logit_c)
+            unit_c = expit(logit_c)
+            c = guessing_upper * unit_c
         else:
-            c = np.full(M, fix_guessing)
+            c = np.full(M, float(fix_guessing))
 
         beta = beta - beta.mean()  # Identifiability
-        a = np.exp(np.clip(log_a, -3, 3))
+        a = np.exp(log_a)
 
-        # P(correct) = c + (1-c) * sigmoid(a * (theta - beta))
         diff = theta[:, None] - beta[None, :]  # (L, M)
         logit = a[None, :] * diff
-        base_prob = sigmoid(logit)
+        base_prob = expit(logit)
         prob = c[None, :] + (1 - c[None, :]) * base_prob
-        prob = np.clip(prob, 1e-10, 1 - 1e-10)
-
-        nll = -np.sum(
-            k_correct * np.log(prob) + (n_trials - k_correct) * np.log(1 - prob)
-        )
-
-        # Optional regularization
+        nll = -np.sum(xlogy(k_correct, prob) + xlog1py(n_trials - k_correct, -prob))
         nll += reg_discrimination * np.sum(log_a**2)
         if fix_guessing is None:
             nll += reg_guessing * np.sum(logit_c**2)
 
-        return nll
+        residual = n_trials * prob - k_correct
+        safe_prob = np.maximum(prob, np.finfo(float).tiny)
+        grad_logit = residual * base_prob / safe_prob
+        grad_theta = np.sum(grad_logit * a[None, :], axis=1)
+        grad_beta = -a * grad_logit.sum(axis=0)
+        grad_beta -= grad_beta.mean()
+        grad_log_a = np.sum(grad_logit * logit, axis=0)
+        grad_log_a += 2.0 * reg_discrimination * log_a
+        gradient_parts = [grad_theta, grad_beta, grad_log_a]
+        if fix_guessing is None:
+            grad_c = np.sum(residual / (safe_prob * (1.0 - c[None, :])), axis=0)
+            dc_d_logit = guessing_upper * unit_c * (1.0 - unit_c)
+            grad_guessing = grad_c * dc_d_logit
+            grad_guessing += 2.0 * reg_guessing * logit_c
+            gradient_parts.append(grad_guessing)
+        return float(nll), np.concatenate(gradient_parts)
 
     # Initialize
     p_lm = np.clip((k_correct + 0.5) / (n_trials + 1.0), 1e-6, 1 - 1e-6)
@@ -1320,22 +1829,37 @@ def _estimate_3pl_abilities(
     else:
         params_init = np.concatenate([theta_init, beta_init, log_a_init])
 
-    result = minimize(
-        negative_log_likelihood,
+    bounds = [(None, None)] * (L + M) + [
+        (-_LOG_DISCRIMINATION_BOUND, _LOG_DISCRIMINATION_BOUND)
+    ] * M
+    if fix_guessing is None:
+        bounds += [(None, None)] * M
+    result = _optimize_nonconvex_irt(
+        objective_and_gradient,
         params_init,
-        method="L-BFGS-B",
-        options={"maxiter": max_iter},
+        bounds,
+        max_iter,
+        L,
+        M,
+        k_correct,
+        "rasch_3pl",
     )
 
     theta = result.x[:L]
     beta = result.x[L : L + M]
     beta = beta - beta.mean()
     log_a = result.x[L + M : L + 2 * M]
-    a = np.exp(np.clip(log_a, -3, 3))
+    _require_stable_irt_location(theta, beta, log_a, "rasch_3pl")
+    a = np.exp(log_a)
 
     if fix_guessing is None:
         logit_c = result.x[L + 2 * M :]
-        c = guessing_upper * sigmoid(logit_c)
+        if np.max(np.abs(logit_c)) > 30.0:
+            raise ValueError(
+                "rasch_3pl guessing parameters saturated at a boundary; use "
+                "stronger guessing regularization or fix_guessing."
+            )
+        c = guessing_upper * expit(logit_c)
     else:
         c = np.full(M, float(fix_guessing))
 
@@ -1361,39 +1885,62 @@ def _estimate_3pl_abilities_map(
         (ii) log a and (optionally) logit c via small quadratic penalties
              (interpretable as weak Gaussian priors)
     """
-    L, M = k_correct.shape
+    if type(prior) is UniformPrior:
+        return _estimate_3pl_abilities(
+            k_correct,
+            n_trials,
+            max_iter=max_iter,
+            fix_guessing=fix_guessing,
+            reg_discrimination=reg_discrimination,
+            reg_guessing=reg_guessing,
+            guessing_upper=guessing_upper,
+        )
 
-    def negative_log_posterior(params):
+    L, M = k_correct.shape
+    _require_finite_item_estimates(k_correct, n_trials, "3PL MAP")
+
+    def objective_and_gradient(params):
         theta = params[:L]
         beta = params[L : L + M]
         log_a = params[L + M : L + 2 * M]
 
         if fix_guessing is None:
             logit_c = params[L + 2 * M :]
-            c = guessing_upper * sigmoid(logit_c)
+            unit_c = expit(logit_c)
+            c = guessing_upper * unit_c
         else:
             c = np.full(M, float(fix_guessing))
 
         beta = beta - beta.mean()
-        a = np.exp(np.clip(log_a, -3, 3))
+        a = np.exp(log_a)
 
         diff = theta[:, None] - beta[None, :]
         logit = a[None, :] * diff
-        base_prob = sigmoid(logit)
+        base_prob = expit(logit)
         prob = c[None, :] + (1 - c[None, :]) * base_prob
-        prob = np.clip(prob, 1e-10, 1 - 1e-10)
-
-        nll = -np.sum(
-            k_correct * np.log(prob) + (n_trials - k_correct) * np.log(1 - prob)
-        )
-
-        # Priors and regularization.
+        nll = -np.sum(xlogy(k_correct, prob) + xlog1py(n_trials - k_correct, -prob))
         nll += prior.penalty(theta)
         nll += reg_discrimination * np.sum(log_a**2)
         if fix_guessing is None:
             nll += reg_guessing * np.sum(logit_c**2)
 
-        return float(nll)
+        residual = n_trials * prob - k_correct
+        safe_prob = np.maximum(prob, np.finfo(float).tiny)
+        grad_logit = residual * base_prob / safe_prob
+        grad_theta = np.sum(grad_logit * a[None, :], axis=1)
+        grad_theta += _prior_gradient(prior, theta)
+        grad_beta = -a * grad_logit.sum(axis=0)
+        grad_beta -= grad_beta.mean()
+        grad_log_a = np.sum(grad_logit * logit, axis=0)
+        grad_log_a += 2.0 * reg_discrimination * log_a
+        gradient_parts = [grad_theta, grad_beta, grad_log_a]
+        if fix_guessing is None:
+            grad_c = np.sum(residual / (safe_prob * (1.0 - c[None, :])), axis=0)
+            dc_d_logit = guessing_upper * unit_c * (1.0 - unit_c)
+            grad_guessing = grad_c * dc_d_logit
+            grad_guessing += 2.0 * reg_guessing * logit_c
+            gradient_parts.append(grad_guessing)
+        return float(nll), np.concatenate(gradient_parts)
 
     # Initialize
     p_lm = np.clip((k_correct + 0.5) / (n_trials + 1.0), 1e-6, 1 - 1e-6)
@@ -1410,11 +1957,21 @@ def _estimate_3pl_abilities_map(
     else:
         params_init = np.concatenate([theta_init, beta_init, log_a_init])
 
-    result = minimize(
-        negative_log_posterior,
+    bounds = [(None, None)] * (L + M) + [
+        (-_LOG_DISCRIMINATION_BOUND, _LOG_DISCRIMINATION_BOUND)
+    ] * M
+    if fix_guessing is None:
+        bounds += [(None, None)] * M
+    result = _optimize_nonconvex_irt(
+        objective_and_gradient,
         params_init,
-        method="L-BFGS-B",
-        options={"maxiter": max_iter},
+        bounds,
+        max_iter,
+        L,
+        M,
+        k_correct,
+        "rasch_3pl_map",
+        exchangeable=_prior_is_exchangeable(prior),
     )
 
     theta = result.x[:L]
@@ -1422,11 +1979,17 @@ def _estimate_3pl_abilities_map(
     beta = beta - beta.mean()
 
     log_a = result.x[L + M : L + 2 * M]
-    a = np.exp(np.clip(log_a, -3, 3))
+    _require_stable_irt_location(theta, beta, log_a, "rasch_3pl_map")
+    a = np.exp(log_a)
 
     if fix_guessing is None:
         logit_c = result.x[L + 2 * M :]
-        c = guessing_upper * sigmoid(logit_c)
+        if np.max(np.abs(logit_c)) > 30.0:
+            raise ValueError(
+                "rasch_3pl_map guessing parameters saturated at a boundary; "
+                "use stronger guessing regularization or fix_guessing."
+            )
+        c = guessing_upper * expit(logit_c)
     else:
         c = np.full(M, float(fix_guessing))
 
@@ -1478,6 +2041,12 @@ def rasch_mml(
             \\quad
             w_{lq} \\propto p(k_l\\mid\\theta_q,b)\\,w_q
 
+    Notes:
+        An all-correct item has extended difficulty ``-inf`` and an all-wrong
+        item has ``+inf``. These non-informative columns contribute no finite
+        calibration information; EAP ability scores remain finite under the
+        fixed standard-normal population prior.
+
     References:
         Bock, R. D., & Aitkin, M. (1981). Marginal maximum likelihood
         estimation of item parameters: Application of an EM algorithm.
@@ -1508,7 +2077,7 @@ def rasch_mml(
         em_iter=em_iter,
         n_quadrature=n_quadrature,
     )
-    scores = theta
+    scores = average_equivalent_scores(theta, _one_pl_equivalence_statistics(k_correct))
 
     ranking = rank_scores(scores)[method]
     if return_item_params:
@@ -1568,6 +2137,9 @@ def rasch_mml_credible(
     )
 
     scores = _posterior_quantile(posterior, theta_q, quantile)
+    scores = average_equivalent_scores(
+        scores, _one_pl_equivalence_statistics(k_correct)
+    )
     ranking = rank_scores(scores)[method]
     return (ranking, scores) if return_scores else ranking
 
@@ -1717,6 +2289,7 @@ def mirt(
         )
 
     k_correct, n_trials = _to_binomial_counts(R)
+    _require_finite_item_estimates(k_correct, n_trials, "MIRT")
     _, M = k_correct.shape
     if n_factors > M:
         raise ValueError(
@@ -1737,6 +2310,15 @@ def mirt(
         guessing_upper=guessing_upper,
         tol=tol,
     )
+
+    scores = _average_item_exchangeable_scores(scores, k_correct)
+    for factor in range(theta.shape[1]):
+        theta[:, factor] = _average_item_exchangeable_scores(
+            theta[:, factor], k_correct
+        )
+        theta_sd[:, factor] = _average_item_exchangeable_scores(
+            theta_sd[:, factor], k_correct
+        )
 
     ranking = rank_scores(scores)[method]
     if return_item_params:
@@ -1814,6 +2396,33 @@ def _estimate_rasch_mml(
     """
     L, M = k_correct.shape
 
+    item_totals = k_correct.sum(axis=0)
+    all_wrong = item_totals == 0.0
+    all_correct = item_totals == float(L * n_trials)
+    informative = ~(all_wrong | all_correct)
+    if not np.all(informative):
+        beta = np.empty(M, dtype=float)
+        beta[all_wrong] = np.inf
+        beta[all_correct] = -np.inf
+
+        if np.any(informative):
+            abilities, beta_sub, posterior, theta_q = _estimate_rasch_mml(
+                k_correct[:, informative],
+                n_trials,
+                max_iter=max_iter,
+                em_iter=em_iter,
+                n_quadrature=n_quadrature,
+            )
+            beta[informative] = beta_sub
+            return abilities, beta, posterior, theta_q
+
+        x_gh, w_gh = np.polynomial.hermite.hermgauss(n_quadrature)
+        theta_q = np.sqrt(2.0) * x_gh
+        weights = w_gh / np.sqrt(np.pi)
+        posterior = np.repeat(weights[None, :], L, axis=0)
+        abilities = posterior @ theta_q
+        return abilities, beta, posterior, theta_q
+
     # Gauss-Hermite quadrature points and weights
     # Transform to standard normal: θ = √2 * x
     x_gh, w_gh = np.polynomial.hermite.hermgauss(n_quadrature)
@@ -1824,7 +2433,6 @@ def _estimate_rasch_mml(
     p_lm = np.clip((k_correct + 0.5) / (n_trials + 1.0), 1e-6, 1 - 1e-6)
     question_difficulty = p_lm.mean(axis=0)
     beta = -np.log((question_difficulty + 0.01) / (1 - question_difficulty + 0.01))
-    beta = beta - beta.mean()
 
     def _make_item_nll(k_m, posterior):
         def item_nll(b):
@@ -1869,10 +2477,8 @@ def _estimate_rasch_mml(
                 method="L-BFGS-B",
                 options={"maxiter": max_iter},
             )
+            _require_optimizer_success(result, "rasch_mml item M-step")
             beta[m] = result.x[0]
-
-        # Re-center difficulties
-        beta = beta - beta.mean()
 
     # Final E-step: Compute EAP ability estimates
     log_lik = np.zeros((L, n_quadrature))
@@ -2061,6 +2667,7 @@ def _estimate_mirt(
             method="L-BFGS-B",
             options={"maxiter": max_iter},
         )
+        _require_optimizer_success(result, "mirt item M-step")
         a_new = result.x[: M * D].reshape(M, D)
         d_new = result.x[M * D : M * D + M]
         gamma_new = result.x[M * D + M :] if estimate_c else gamma

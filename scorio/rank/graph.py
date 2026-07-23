@@ -104,10 +104,11 @@ def pagerank(
     Rank models with PageRank on the pairwise win-probability graph.
 
     Method context:
-        Build a directed graph where edge ``j -> i`` has weight
-        ``P_hat[i, j]`` (losers link to winners). Column-normalize to obtain a
-        transition matrix and run the damped PageRank fixed point with a
-        teleportation vector ``e``.
+        For every opponent ``i``, model ``j`` stays at ``j`` with mass
+        ``P_hat[j, i]`` or moves to ``i`` with mass ``P_hat[i, j]``. Aggregating
+        these head-to-head transitions gives a column-stochastic matrix that
+        preserves the magnitude of each comparison. Run the damped PageRank
+        fixed point with teleportation vector ``e``.
 
     Args:
         R: Binary outcome tensor with shape ``(L, M, N)`` or matrix
@@ -132,14 +133,21 @@ def pagerank(
 
     Formula:
         .. math::
-            P_{ij}
-            = \\frac{\\widehat{P}_{i\\succ j}}
-                   {\\sum_{k\\neq j}\\widehat{P}_{k\\succ j}}
+            A_{ij}=\\widehat{P}_{i\\succ j}\\;(i\\neq j),\\qquad
+            A_{ii}=\\sum_{k\\neq i}\\widehat{P}_{i\\succ k}
+
+        Because
+        :math:`\\widehat{P}_{i\\succ j}+\\widehat{P}_{j\\succ i}=1`, every
+        column of :math:`A` sums to :math:`L-1`. Thus
 
         .. math::
-            r = d P r + (1-d)\\,e
+            Q = \\frac{1}{L-1}A,\\qquad
+            r = d Q r + (1-d)\\,e
 
-        where ``e`` is a probability vector. The default choice is
+        where ``e`` is a probability vector. The diagonal mass is the
+        aggregate probability that a model wins its sampled head-to-head
+        comparison; it prevents normalization from discarding win magnitude.
+        The default teleportation choice is
         :math:`e = \\frac{1}{L}\\mathbf{1}`.
 
     References:
@@ -183,24 +191,20 @@ def pagerank(
     # Pairwise win probabilities P̂_{i≻j} in [0,1].
     P_hat = _pairwise_win_probabilities(R)
 
-    # Build column-stochastic transition matrix
-    # P[i, j] = probability of transitioning TO i FROM j
-    W = P_hat.copy()
-    np.fill_diagonal(W, 0.0)
-
-    P = np.zeros((L, L), dtype=float)
-    for j in range(L):
-        col_sum = float(W[:, j].sum())
-        if col_sum > 0:
-            P[:, j] = W[:, j] / col_sum
-        else:
-            P[:, j] = 1.0 / L  # Uniform if no outgoing edges
+    # Preserve each head-to-head magnitude. From model j, comparison with i
+    # contributes P_hat[i, j] to moving to i and P_hat[j, i] to staying at j.
+    # Since complementary pairwise probabilities sum to one, each column has
+    # total mass L - 1 before normalization.
+    A = P_hat.copy()
+    np.fill_diagonal(A, 0.0)
+    np.fill_diagonal(A, A.sum(axis=1))
+    Q = A / float(L - 1)
 
     # PageRank iteration
     r = np.ones(L) / L
 
     for _ in range(max_iter):
-        r_new = damping * (P @ r) + (1 - damping) * e
+        r_new = damping * (Q @ r) + (1 - damping) * e
         if np.linalg.norm(r_new - r, 1) < tol:
             r = r_new
             break
@@ -218,13 +222,14 @@ def spectral(
     return_scores: bool = False,
 ) -> RankResult:
     """
-    Rank models by spectral centrality of pairwise win probabilities.
+    Rank models by Keener's Perron--Frobenius spectral method.
 
     Method context:
-        Form a nonnegative matrix ``W`` with off-diagonal entries
-        ``W[i, j] = P_hat[i, j]`` and diagonal self-loop mass equal to row sum.
-        The normalized dominant right eigenvector is the score vector.
-        This is an eigenvector-based Perron-style spectral ranking heuristic.
+        Form Keener's pairwise preference matrix with Laplace-smoothed tied-win
+        fractions. The normalized dominant right Perron eigenvector is the
+        score vector. A common unit diagonal shift is used during power
+        iteration; it leaves all eigenvectors unchanged and makes the matrix
+        primitive, including in the two-model case.
 
     Args:
         R: Binary outcome tensor with shape ``(L, M, N)`` or matrix
@@ -241,14 +246,18 @@ def spectral(
 
     Formula:
         .. math::
-            W_{ij}=\\widehat{P}_{i\\succ j}\\;(i\\neq j),\\quad
-            W_{ii}=\\sum_{j\\neq i}W_{ij}
+            A_{ij}
+            = \\frac{W_{ij}+\\tfrac12 T_{ij}+1}
+                   {W_{ij}+W_{ji}+T_{ij}+2}\\quad(i\\neq j),
+            \\qquad A_{ii}=0
 
         .. math::
-            v \\propto W v,\\quad \\sum_i v_i = 1
+            v \\propto A v,\\quad \\sum_i v_i = 1
+
+        The implementation iterates with :math:`A+I`, which has the same
+        eigenvectors as :math:`A`.
 
     References:
-        Vigna, S. (2016). Spectral ranking. *Network Science*.
         Keener, J. P. (1993). The Perron-Frobenius theorem and the ranking
         of football teams. *SIAM Review*.
 
@@ -259,7 +268,7 @@ def spectral(
         ...     [[0, 0], [0, 0]],
         ... ])
         >>> _, scores = spectral(R, return_scores=True)
-        >>> scores[0] > scores[1]
+        >>> bool(scores[0] > scores[1])
         True
     """
     max_iter = _validate_positive_int("max_iter", max_iter)
@@ -268,15 +277,20 @@ def spectral(
     R = validate_input(R)
     L = R.shape[0]
 
-    P_hat = _pairwise_win_probabilities(R)
+    wins, ties = build_pairwise_counts(R)
+    total = wins + wins.T + ties
 
-    W = P_hat.copy()
-    np.fill_diagonal(W, 0.0)
-    np.fill_diagonal(W, W.sum(axis=1))
+    # Keener's Laplace transform of the tied-split pairwise win fraction.
+    # Every off-diagonal entry is strictly positive. The scalar identity shift
+    # leaves Perron eigenvectors unchanged while ensuring primitive iteration
+    # for L=2 as well as larger comparison matrices.
+    A = (wins + 0.5 * ties + 1.0) / (total + 2.0)
+    np.fill_diagonal(A, 0.0)
+    shifted_A = A + np.eye(L, dtype=float)
 
     v = np.ones(L, dtype=float) / L
     for _ in range(max_iter):
-        v_new = W @ v
+        v_new = shifted_A @ v
         s = float(v_new.sum())
         if s <= 0 or not np.all(np.isfinite(v_new)):
             v_uniform = np.ones(L, dtype=float) / L
@@ -352,7 +366,7 @@ def alpharank(
         ...     [[0, 0], [0, 0]],
         ... ])
         >>> _, scores = alpharank(R, return_scores=True)
-        >>> scores[0] > scores[1]
+        >>> bool(scores[0] > scores[1])
         True
     """
     max_iter = _validate_positive_int("max_iter", max_iter)
@@ -470,6 +484,12 @@ def nash(
         ``score_type`` choices here are practical per-model summaries derived
         from that equilibrium for ranking API use.
 
+        For binary complete-event data with half credit for ties,
+        ``A[i,j]`` equals the difference between models' empirical accuracies.
+        The returned equilibrium is therefore the label-invariant equilibrium
+        that is uniform over all maximum-accuracy models, rather than an
+        arbitrary extreme point selected by the LP solver.
+
     References:
         Balduzzi, D., Garnelo, M., Bachrach, Y., Czarnecki, W. M.,
         P{\'e}rolat, J., Jaderberg, M., & Graepel, T. (2019).
@@ -484,7 +504,7 @@ def nash(
         ...     [[0, 0], [0, 0]],
         ... ])
         >>> ranks, scores, eq = nash(R, return_scores=True, return_equilibrium=True)
-        >>> scores[0] > scores[1]
+        >>> bool(scores[0] > scores[1])
         True
     """
     _validate_positive_int("n_iter", n_iter)
@@ -557,27 +577,14 @@ def nash(
     )
 
     if res.status != 0 or res.x is None or not np.all(np.isfinite(res.x)):
-        equilibrium = np.ones(L, dtype=float) / L
-        if score_type == "equilibrium":
-            scores = equilibrium
-        elif score_type == "advantage_vs_equilibrium":
-            scores = A @ equilibrium
-        else:
-            scores = P_hat @ equilibrium
+        raise RuntimeError(
+            "Nash equilibrium linear program failed: "
+            f"{getattr(res, 'message', f'status {res.status}')}"
+        )
 
-        ranking = rank_scores(scores)[method]
-        if return_scores and return_equilibrium:
-            return ranking, scores, equilibrium
-        if return_scores:
-            return ranking, scores
-        if return_equilibrium:
-            return ranking, equilibrium
-        return ranking
-
-    x = np.asarray(res.x[:L], dtype=float)
-    x = np.clip(x, 0.0, None)
-    s = float(x.sum())
-    equilibrium = (x / s) if s > 0 else (np.ones(L, dtype=float) / L)
+    totals = R.sum(axis=(1, 2))
+    maximizers = totals == totals.max()
+    equilibrium = maximizers.astype(float) / np.count_nonzero(maximizers)
 
     if score_type == "equilibrium":
         scores = equilibrium

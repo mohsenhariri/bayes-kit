@@ -53,12 +53,15 @@ from scipy.optimize import minimize
 
 from scorio.utils import rank_scores
 
-from ._base import build_pairwise_wins, validate_input
-from ._types import RankMethod, RankResult
-from .priors import (
-    GaussianPrior,
-    Prior,
+from ._base import (
+    average_equivalent_scores,
+    average_event_exchangeable_scores,
+    build_pairwise_wins,
+    is_strongly_connected,
+    validate_input,
 )
+from ._types import RankMethod, RankResult
+from .priors import CauchyPrior, GaussianPrior, LaplacePrior, Prior, UniformPrior
 
 
 def _validate_positive_int(name: str, value: int, minimum: int = 1) -> int:
@@ -98,6 +101,11 @@ def _coerce_prior(prior: Prior | float) -> Prior:
         )
 
     return prior
+
+
+def _prior_is_exchangeable(prior: Prior) -> bool:
+    """Whether permuting model labels leaves the prior penalty unchanged."""
+    return type(prior) in {GaussianPrior, LaplacePrior, CauchyPrior, UniformPrior}
 
 
 def _logsumexp(values: np.ndarray) -> float:
@@ -162,11 +170,23 @@ def _extract_winners_losers_events(
     return events
 
 
+def _davidson_equivalence_statistics(
+    events: list[tuple[np.ndarray, np.ndarray]],
+    n_models: int,
+    max_tie_order: int,
+) -> np.ndarray:
+    """Count each model's winner memberships by observed tie order."""
+    counts = np.zeros((n_models, max_tie_order), dtype=int)
+    for winners, _ in events:
+        counts[winners, winners.size - 1] += 1
+    return counts
+
+
 def plackett_luce(
     R: np.ndarray,
     method: RankMethod = "competition",
     return_scores: bool = False,
-    max_iter: int = 500,
+    max_iter: int = 10_000,
     tol: float = 1e-8,
 ) -> RankResult:
     """
@@ -211,16 +231,20 @@ def plackett_luce(
         >>> import numpy as np
         >>> from scorio import rank
         >>> R = np.array([
-        ...     [[1, 1], [1, 1]],
-        ...     [[0, 0], [0, 0]],
+        ...     [1, 0, 0, 1],
+        ...     [0, 1, 0, 0],
+        ...     [0, 0, 1, 0],
         ... ])
         >>> ranks = rank.plackett_luce(R)
-        >>> ranks[0] < ranks[1]  # Model 0 has better (lower) rank
+        >>> bool(ranks[0] < ranks[1])  # Model 0 has better (lower) rank
         True
 
     Notes:
         This implementation intentionally ignores within-outcome ties
         (both-correct or both-incorrect), matching pairwise decisive reduction.
+        A finite ML estimate requires a strongly connected directed win graph;
+        separated data raises ``ValueError`` and should use
+        :func:`plackett_luce_map`.
     """
     R = validate_input(R)
     max_iter = _validate_positive_int("max_iter", max_iter)
@@ -228,6 +252,7 @@ def plackett_luce(
 
     wins = build_pairwise_wins(R)
     scores = _mm_plackett_luce(wins, max_iter=max_iter, tol=tol)
+    scores = average_equivalent_scores(scores, R)
     ranking = rank_scores(scores)[method]
     return (ranking, scores) if return_scores else ranking
 
@@ -283,7 +308,7 @@ def plackett_luce_map(
         ...     [[0, 0], [0, 0]],
         ... ])
         >>> ranks = rank.plackett_luce_map(R, prior=1.0)
-        >>> ranks[0] < ranks[1]
+        >>> bool(ranks[0] < ranks[1])
         True
 
     Notes:
@@ -295,6 +320,8 @@ def plackett_luce_map(
 
     wins = build_pairwise_wins(R)
     scores = _estimate_pl_map(wins, prior, max_iter=max_iter)
+    if _prior_is_exchangeable(prior):
+        scores = average_equivalent_scores(scores, R)
     ranking = rank_scores(scores)[method]
     return (ranking, scores) if return_scores else ranking
 
@@ -348,12 +375,13 @@ def davidson_luce(
         >>> import numpy as np
         >>> from scorio import rank
         >>> R = np.array([
-        ...     [[1, 1], [1, 1]],
-        ...     [[0, 0], [0, 0]],
+        ...     [1, 0, 0, 1],
+        ...     [0, 1, 0, 0],
+        ...     [0, 0, 1, 0],
         ... ])
         >>> ranks = rank.davidson_luce(R)
-        >>> ranks[0] < ranks[1]  # Model 0 has better (lower) rank
-        True
+        >>> ranks.tolist()
+        [1, 2, 2]
 
     Notes:
         Events with all winners or all losers are dropped as uninformative.
@@ -369,9 +397,18 @@ def davidson_luce(
     max_tie_order = _validate_positive_int("max_tie_order", max_tie_order)
     if max_tie_order > L:
         raise ValueError(f"max_tie_order must be <= number of models ({L})")
+    if any(winners.size > max_tie_order for winners, _ in events):
+        raise ValueError(
+            "Observed winner-set size exceeds max_tie_order; increase "
+            "max_tie_order so every observed event has positive model probability."
+        )
 
     scores, _ = _estimate_davidson_luce_ml(
         events, n_models=L, max_tie_order=max_tie_order, max_iter=max_iter
+    )
+    scores = average_equivalent_scores(
+        scores,
+        _davidson_equivalence_statistics(events, L, max_tie_order),
     )
     ranking = rank_scores(scores)[method]
     return (ranking, scores) if return_scores else ranking
@@ -414,7 +451,7 @@ def davidson_luce_map(
         ...     [[0, 0], [0, 0]],
         ... ])
         >>> ranks = rank.davidson_luce_map(R, prior=1.0)
-        >>> ranks[0] < ranks[1]
+        >>> bool(ranks[0] < ranks[1])
         True
     """
     R = validate_input(R)
@@ -431,6 +468,11 @@ def davidson_luce_map(
     max_tie_order = _validate_positive_int("max_tie_order", max_tie_order)
     if max_tie_order > L:
         raise ValueError(f"max_tie_order must be <= number of models ({L})")
+    if any(winners.size > max_tie_order for winners, _ in events):
+        raise ValueError(
+            "Observed winner-set size exceeds max_tie_order; increase "
+            "max_tie_order so every observed event has positive model probability."
+        )
 
     scores, _ = _estimate_davidson_luce_map(
         events,
@@ -439,6 +481,11 @@ def davidson_luce_map(
         max_tie_order=max_tie_order,
         max_iter=max_iter,
     )
+    if _prior_is_exchangeable(prior):
+        scores = average_equivalent_scores(
+            scores,
+            _davidson_equivalence_statistics(events, L, max_tie_order),
+        )
     ranking = rank_scores(scores)[method]
     return (ranking, scores) if return_scores else ranking
 
@@ -486,13 +533,16 @@ def bradley_terry_luce(
     Notes:
         This objective is a Luce-style composite likelihood induced by
         rank-breaking, rather than a full normalized likelihood over all
-        possible winner subsets.
+        possible winner subsets. Its unregularized finite MLE requires a
+        strongly connected directed choice graph; otherwise use
+        :func:`bradley_terry_luce_map`.
     """
     R = validate_input(R)
     max_iter = _validate_positive_int("max_iter", max_iter)
 
     events = _extract_winners_losers_events(R)
     scores = _estimate_btl_ml(events, n_models=R.shape[0], max_iter=max_iter)
+    scores = average_event_exchangeable_scores(scores, R)
     ranking = rank_scores(scores)[method]
     return (ranking, scores) if return_scores else ranking
 
@@ -531,6 +581,8 @@ def bradley_terry_luce_map(
     scores = _estimate_btl_map(
         events, n_models=R.shape[0], prior=prior, max_iter=max_iter
     )
+    if _prior_is_exchangeable(prior):
+        scores = average_event_exchangeable_scores(scores, R)
     ranking = rank_scores(scores)[method]
     return (ranking, scores) if return_scores else ranking
 
@@ -570,6 +622,12 @@ def _mm_plackett_luce(
     if total_wins == 0:
         # No comparisons - return uniform
         return np.ones(L) / L
+    if not is_strongly_connected(wins > 0):
+        raise ValueError(
+            "Plackett-Luce has no finite maximum-likelihood estimate because "
+            "the directed win graph is not strongly connected; use "
+            "plackett_luce_map for a regularized estimate."
+        )
 
     pi = W / total_wins
     pi = np.maximum(pi, 1e-10)
@@ -577,6 +635,7 @@ def _mm_plackett_luce(
     # Total comparisons between each pair
     n_comparisons = wins + wins.T
 
+    converged = False
     for _iteration in range(max_iter):
         pi_old = pi.copy()
 
@@ -601,7 +660,13 @@ def _mm_plackett_luce(
 
         # Check convergence
         if np.max(np.abs(pi - pi_old)) < tol:
+            converged = True
             break
+
+    if not converged:
+        raise RuntimeError(
+            "plackett_luce MM optimization did not converge within max_iter"
+        )
 
     return pi
 
@@ -626,6 +691,9 @@ def _estimate_pl_map(wins: np.ndarray, prior: Prior, max_iter: int = 500) -> np.
     Returns:
         Strength parameters π of shape (L,).
     """
+    if type(prior) is UniformPrior:
+        return _mm_plackett_luce(wins, max_iter=max_iter)
+
     L = wins.shape[0]
 
     def negative_log_posterior(log_pi):
@@ -720,6 +788,18 @@ def _estimate_davidson_luce_ml(
     if not events:
         return np.ones(L) / L, np.ones(max(max_tie_order - 1, 1))
 
+    directed_choices = np.zeros((L, L), dtype=bool)
+    for winners, losers in events:
+        directed_choices[np.ix_(winners, losers)] = True
+        directed_choices[np.ix_(winners, winners)] = True
+    np.fill_diagonal(directed_choices, False)
+    if not is_strongly_connected(directed_choices):
+        raise ValueError(
+            "Davidson-Luce has no finite maximum-likelihood strength estimate "
+            "because its win/co-winner graph is not strongly connected; use "
+            "davidson_luce_map with a proper prior."
+        )
+
     # In this binary setting, each event partitions all models into winners/losers.
     comparison_set = np.arange(L, dtype=int)
 
@@ -733,7 +813,7 @@ def _estimate_davidson_luce_ml(
         for winners, _ in events:
             t = winners.size
             if t < 1 or t > max_tie_order:
-                continue
+                raise ValueError("Observed winner-set size exceeds max_tie_order")
 
             log_delta_t = 0.0 if t == 1 else float(log_delta_params[t - 2])
             log_numerator = log_delta_t + float(log_alpha[winners].mean())
@@ -776,6 +856,14 @@ def _estimate_davidson_luce_map(
     max_tie_order: int,
     max_iter: int = 500,
 ) -> tuple[np.ndarray, np.ndarray]:
+    if type(prior) is UniformPrior:
+        return _estimate_davidson_luce_ml(
+            events,
+            n_models=n_models,
+            max_tie_order=max_tie_order,
+            max_iter=max_iter,
+        )
+
     L = int(n_models)
     if not events:
         return np.ones(L) / L, np.ones(max(max_tie_order - 1, 1))
@@ -792,7 +880,7 @@ def _estimate_davidson_luce_map(
         for winners, _ in events:
             t = winners.size
             if t < 1 or t > max_tie_order:
-                continue
+                raise ValueError("Observed winner-set size exceeds max_tie_order")
 
             log_delta_t = 0.0 if t == 1 else float(log_delta_params[t - 2])
             log_numerator = log_delta_t + float(log_alpha[winners].mean())
@@ -836,6 +924,16 @@ def _estimate_btl_ml(
     if not events:
         return np.ones(L) / L
 
+    directed_choices = np.zeros((L, L), dtype=bool)
+    for winners, losers in events:
+        directed_choices[np.ix_(winners, losers)] = True
+    if not is_strongly_connected(directed_choices):
+        raise ValueError(
+            "Bradley-Terry-Luce has no finite maximum-likelihood estimate "
+            "because the directed choice graph is not strongly connected; "
+            "use bradley_terry_luce_map for a regularized estimate."
+        )
+
     def negative_log_likelihood(log_pi: np.ndarray) -> float:
         log_pi = log_pi - log_pi.mean()
 
@@ -867,6 +965,9 @@ def _estimate_btl_map(
     prior: Prior,
     max_iter: int = 500,
 ) -> np.ndarray:
+    if type(prior) is UniformPrior:
+        return _estimate_btl_ml(events, n_models=n_models, max_iter=max_iter)
+
     L = int(n_models)
     if not events:
         return np.ones(L) / L

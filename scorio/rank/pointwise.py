@@ -43,10 +43,6 @@ def inverse_difficulty(
         rate. It emphasizes rare successes while still aggregating all
         questions into one scalar score per model.
 
-    References:
-        Inverse probability weighting (Wikipedia):
-        https://en.wikipedia.org/wiki/Inverse_probability_weighting
-
     Args:
         R: Binary outcome tensor with shape ``(L, M, N)`` or matrix
             ``(L, M)`` (treated as ``N=1``).
@@ -97,8 +93,8 @@ def inverse_difficulty(
 
     Notes:
         Very small clip lower bounds can make the weighting highly sensitive
-        to a few rare solves. This implementation is a simple inverse-weighted
-        pointwise scorer.
+        to a few rare solves. This is a question-difficulty reweighting
+        heuristic, not a formal inverse-probability-weighting estimator.
     """
     R = validate_input(R)
 

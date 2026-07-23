@@ -568,6 +568,12 @@ def ranked_pairs(
         Brandt, F., Conitzer, V., Endriss, U., Lang, J., & Procaccia, A. D.
         (2016). Handbook of Computational Social Choice. Cambridge University
         Press.
+
+    Notes:
+        Ranked Pairs requires a tie-break order for equally strong victories.
+        This implementation uses winning-vote count and then model indices as
+        deterministic secondary keys, so exact edge-strength ties can be
+        label-dependent.
     """
     R = validate_input(R)
     k = _per_question_correct_counts(R)
@@ -659,6 +665,10 @@ def kemeny_young(
         the forced-order DAG over all optimal Kemeny solutions. For
         ``tie_aware=False``, scores are the number of opponents ranked below
         each model in the selected optimal order.
+
+    Raises:
+        RuntimeError: If the MILP solver does not prove optimality for the
+            main problem or any required tie-aware subproblem.
 
     Notation:
         ``P_{ij}`` is the aggregated pairwise preference count.
@@ -780,8 +790,11 @@ def kemeny_young(
         constraints=constraints,
         options=options,
     )
-    if res.x is None:
-        raise RuntimeError("MILP solver failed to return a solution")
+    if not res.success or res.x is None or not np.isfinite(res.fun):
+        message = getattr(res, "message", "unknown solver failure")
+        raise RuntimeError(
+            f"Kemeny-Young MILP did not prove an optimal solution: {message}"
+        )
 
     y = np.zeros((L, L), dtype=float)
     for i in range(L):
@@ -790,7 +803,7 @@ def kemeny_young(
                 continue
             y[i, j] = res.x[var_index(i, j)]
 
-    if not tie_aware or not res.success:
+    if not tie_aware:
         # In a selected total order, score_i = number of candidates below i.
         scores = y.sum(axis=1)
         ranking = rank_scores(scores)[method]
@@ -817,17 +830,20 @@ def kemeny_young(
             constraints=constraints,
             options=options,
         )
-        if fixed_res.x is None:
-            # Solver could not certify the constrained subproblem;
-            # conservatively treat the order as potentially optimal.
-            return True
-        if not np.isfinite(fixed_res.fun):
-            return True
-        if float(fixed_res.fun) <= opt_value + opt_tol:
-            return True
-        # If the constrained solve did not terminate optimally, do not force
-        # the opposite order to be impossible.
-        return bool(not fixed_res.success)
+        if fixed_res.status == 2:
+            # Proven infeasibility certifies that this orientation cannot occur.
+            return False
+        if (
+            not fixed_res.success
+            or fixed_res.x is None
+            or not np.isfinite(fixed_res.fun)
+        ):
+            message = getattr(fixed_res, "message", "unknown solver failure")
+            raise RuntimeError(
+                "Tie-aware Kemeny-Young MILP did not prove an optimal "
+                f"subproblem solution: {message}"
+            )
+        return bool(float(fixed_res.fun) <= opt_value + opt_tol)
 
     forced = np.zeros((L, L), dtype=bool)
     for i in range(L):
@@ -858,7 +874,7 @@ def nanson(
 
     Method context:
         Recompute Borda scores among currently active models each round, then
-        eliminate all models scoring strictly below the round mean.
+        eliminate all models scoring at or below the round mean.
 
     Args:
         R: Binary outcome tensor with shape ``(L, M, N)`` or matrix
@@ -879,7 +895,7 @@ def nanson(
 
     Formula:
         .. math::
-            E_t = \\{ i \\in A_t : s_i^{(t)} < \\overline{s}^{(t)} \\}
+            E_t = \\{ i \\in A_t : s_i^{(t)} \\le \\overline{s}^{(t)} \\}
             ,\\quad
             A_{t+1} = A_t \\setminus E_t
 
@@ -889,8 +905,8 @@ def nanson(
         Press.
 
     Notes:
-        If no active model is strictly below the mean, elimination stops and
-        all remaining models tie.
+        If all active models have the same Borda score, elimination stops and
+        all remaining models tie rather than eliminating the entire field.
     """
     R = validate_input(R)
     k = _per_question_correct_counts(R)
@@ -910,9 +926,9 @@ def nanson(
             borda_sub += idx.size - r
 
         mean_score = float(borda_sub.mean())
-        to_eliminate = borda_sub < mean_score
-        if not np.any(to_eliminate):
-            # No one below mean: stop with a tie among remaining.
+        to_eliminate = borda_sub <= mean_score
+        if np.all(to_eliminate):
+            # This occurs only when all active candidates have the mean score.
             break
 
         eliminated = idx[to_eliminate]

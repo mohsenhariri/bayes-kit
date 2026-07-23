@@ -1,64 +1,110 @@
 # `scorio.rank` Method References
 
+This catalog links each public ranking method to its implementation and primary
+references. Methods generally accept a binary model-by-question response matrix
+or model-by-question-by-trial tensor; `bayes` additionally supports integer
+categorical outcomes. Several methods adapt their source model by constructing
+pairwise or setwise outcomes from each question-trial event.
+
+Important implementation scope:
+
+- Unregularized Bradley--Terry and decisive/composite Luce maximum-likelihood
+  fits require a strongly connected directed win graph. Their tie-model
+  extensions require the analogous directed win/tie or winner/co-winner support
+  graph. These APIs raise when no finite MLE exists; use the corresponding MAP
+  estimator for separated data.
+- `plackett_luce` is the decisive pairwise Bradley--Terry restriction of Luce
+  and drops tied outcomes; `bradley_terry_luce` is a rank-broken composite
+  likelihood. Only `davidson_luce` directly models a tied winner set as one
+  normalized event. The corresponding MAP APIs use the same constructions.
+- Elo and TrueSkill remain sequential across question-trial events, but all
+  matches within one event use a common pre-event state so results do not depend
+  on arbitrary model index order. `trueskill` is an induced two-player
+  approximation, not the original paper's full multiplayer factor graph.
+- `thompson` is an offline posterior expected-rank estimator using Beta posterior
+  samples. It is inspired by Thompson sampling, not a sequential bandit policy.
+- `inverse_difficulty` is a question-difficulty reweighting heuristic; it is not
+  presented as a formal inverse-probability-weighting estimator.
+- `mg_pass_at_k` follows the paper's discrete threshold-grid approximation to
+  the G-Pass AUC. For odd `k`, that approximation does not attain exactly one
+  even for a perfect model.
+- `dynamic_irt` defaults to a static Rasch fit. Its `growth` and `state_space`
+  variants are longitudinal, reinterpret the trial axis as ordered time, and
+  require `assume_time_axis=True`, at least two time points, and positive
+  slope/random-walk regularization. Time is normalized to `[0, 1]`, so a growth
+  slope is change over the observed time span; state-space paths also use a weak
+  Gaussian anchor on their initial level.
+- Joint Rasch fits reject complete or quasi-separated response patterns rather
+  than returning finite boundary proxies. Joint 2PL/3PL fits require positive
+  discrimination regularization to identify scale and run an additional
+  label-equivariant sensitivity check for weak/nonconvex fits; ambiguous or
+  saturated solutions raise. Rasch MML instead reports extended item estimates
+  (`-inf` for all-correct, `+inf` for all-wrong) and retains finite EAP scores.
+- For this binary complete-event construction, `nash` has payoff
+  `A[i,j] = accuracy[i] - accuracy[j]`; its label-invariant equilibrium is
+  uniform over all maximum-accuracy models.
+- `ranked_pairs` resolves otherwise equal-strength victories by winning-vote
+  count and then model indices. `kemeny_young` returns only a proven MILP
+  optimum and raises if the configured solver limit is reached first.
 
 ## Evaluation Metric-Based Ranking Methods
 
 | `scorio.rank.[method_name]` | Paper | Reference |
 | --- | --- | --- |
-| `avg` | - | [API](./eval_ranking.py#L17) |
-| `bayes` | [Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation](https://arxiv.org/abs/2510.04265) | [API](./eval_ranking.py#L73) · [BibTeX](#bibtex-hariri2025don) |
-| `pass_at_k` | [Evaluating Large Language Models Trained on Code](https://arxiv.org/abs/2107.03374) | [API](./eval_ranking.py#L192) · [BibTeX](#bibtex-chen2021evaluating) |
-| `pass_hat_k` | [tau-bench: A Benchmark for Tool-Agent-User Interaction in Real-World Domains](https://arxiv.org/abs/2406.12045) | [API](./eval_ranking.py#L252) · [BibTeX](#bibtex-yao2024taubench) |
-| `g_pass_at_k_tau` | [Are Your LLMs Capable of Stable Reasoning?](https://arxiv.org/abs/2412.13147) | [API](./eval_ranking.py#L308) · [BibTeX](#bibtex-liu2024stable-reasoning) |
-| `mg_pass_at_k` | [Are Your LLMs Capable of Stable Reasoning?](https://arxiv.org/abs/2412.13147) | [API](./eval_ranking.py#L377) · [BibTeX](#bibtex-liu2024stable-reasoning) |
+| `avg` | - | [API](./eval_ranking.py) |
+| `bayes` | [Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation](https://openreview.net/forum?id=PTXi3Ef4sT) | [API](./eval_ranking.py) · [BibTeX](#bibtex-hariri2026don) |
+| `pass_at_k` | [Evaluating Large Language Models Trained on Code](https://arxiv.org/abs/2107.03374) | [API](./eval_ranking.py) · [BibTeX](#bibtex-chen2021evaluating) |
+| `pass_hat_k` | tau-bench [`pass^k`](https://arxiv.org/abs/2406.12045): all `k` draws succeed | [API](./eval_ranking.py) · [BibTeX](#bibtex-yao2024taubench) |
+| `g_pass_at_k_tau` | [Are Your LLMs Capable of Stable Reasoning?](https://aclanthology.org/2025.findings-acl.905/) | [API](./eval_ranking.py) · [BibTeX](#bibtex-liu2025stable-reasoning) |
+| `mg_pass_at_k` | [Are Your LLMs Capable of Stable Reasoning?](https://aclanthology.org/2025.findings-acl.905/) | [API](./eval_ranking.py) · [BibTeX](#bibtex-liu2025stable-reasoning) |
 
 ## Paired-Comparison Probabilistic Models
 
 | `scorio.rank.[method_name]` | Paper | Reference |
 | --- | --- | --- |
-| `bradley_terry` | [Rank Analysis of Incomplete Block Designs: The Method of Paired Comparisons](https://doi.org/10.1093/biomet/39.3-4.324) | [API](./bradley_terry.py#L77) · [BibTeX](#bibtex-bradleyterry1952) |
-| `bradley_terry_map` | [Efficient Bayesian Inference for Generalized Bradley--Terry Models](https://doi.org/10.1080/10618600.2012.638220) | [API](./bradley_terry.py#L149) · [BibTeX](#bibtex-carondoucet2012) |
-| `bradley_terry_davidson` | [On Extending the Bradley--Terry Model to Accommodate Ties in Paired Comparison Experiments](https://doi.org/10.1080/01621459.1970.10481082) | [API](./bradley_terry.py#L228) · [BibTeX](#bibtex-davidson1970bties) |
-| `bradley_terry_davidson_map` | [On Extending the Bradley--Terry Model to Accommodate Ties in Paired Comparison Experiments](https://doi.org/10.1080/01621459.1970.10481082) · [Efficient Bayesian Inference for Generalized Bradley--Terry Models](https://doi.org/10.1080/10618600.2012.638220) | [API](./bradley_terry.py#L301) · [BibTeX](#bibtex-davidson1970bties) · [BibTeX](#bibtex-carondoucet2012) |
-| `rao_kupper` | [Ties in Paired-Comparison Experiments: A Generalization of the Bradley--Terry Model](https://doi.org/10.1080/01621459.1967.10482901) | [API](./bradley_terry.py#L380) · [BibTeX](#bibtex-rao1967ties) |
-| `rao_kupper_map` | [Ties in Paired-Comparison Experiments: A Generalization of the Bradley--Terry Model](https://doi.org/10.1080/01621459.1967.10482901) · [Efficient Bayesian Inference for Generalized Bradley--Terry Models](https://doi.org/10.1080/10618600.2012.638220) | [API](./bradley_terry.py#L456) · [BibTeX](#bibtex-rao1967ties) · [BibTeX](#bibtex-carondoucet2012) |
+| `bradley_terry` | [Rank Analysis of Incomplete Block Designs: The Method of Paired Comparisons](https://doi.org/10.1093/biomet/39.3-4.324) | [API](./bradley_terry.py) · [BibTeX](#bibtex-bradleyterry1952) |
+| `bradley_terry_map` | [Efficient Bayesian Inference for Generalized Bradley--Terry Models](https://doi.org/10.1080/10618600.2012.638220) | [API](./bradley_terry.py) · [BibTeX](#bibtex-carondoucet2012) |
+| `bradley_terry_davidson` | [On Extending the Bradley--Terry Model to Accommodate Ties in Paired Comparison Experiments](https://doi.org/10.1080/01621459.1970.10481082) | [API](./bradley_terry.py) · [BibTeX](#bibtex-davidson1970bties) |
+| `bradley_terry_davidson_map` | [On Extending the Bradley--Terry Model to Accommodate Ties in Paired Comparison Experiments](https://doi.org/10.1080/01621459.1970.10481082) · [Efficient Bayesian Inference for Generalized Bradley--Terry Models](https://doi.org/10.1080/10618600.2012.638220) | [API](./bradley_terry.py) · [BibTeX](#bibtex-davidson1970bties) · [BibTeX](#bibtex-carondoucet2012) |
+| `rao_kupper` | [Ties in Paired-Comparison Experiments: A Generalization of the Bradley--Terry Model](https://doi.org/10.1080/01621459.1967.10482901) | [API](./bradley_terry.py) · [BibTeX](#bibtex-rao1967ties) |
+| `rao_kupper_map` | [Ties in Paired-Comparison Experiments: A Generalization of the Bradley--Terry Model](https://doi.org/10.1080/01621459.1967.10482901) · [Efficient Bayesian Inference for Generalized Bradley--Terry Models](https://doi.org/10.1080/10618600.2012.638220) | [API](./bradley_terry.py) · [BibTeX](#bibtex-rao1967ties) · [BibTeX](#bibtex-carondoucet2012) |
 
 
 ## Pointwise Methods (Accuracy-Based)
 
 | `scorio.rank.[method_name]` | Paper | Reference |
 | --- | --- | --- |
-| `inverse_difficulty` | [Inverse probability weighting (Wikipedia)](https://en.wikipedia.org/wiki/Inverse_probability_weighting) | [API](./pointwise.py#L30) |
+| `inverse_difficulty` | Question-difficulty reweighting heuristic | [API](./pointwise.py) |
 
 ## Pairwise Rating Systems
 
 | `scorio.rank.[method_name]` | Paper | Reference |
 | --- | --- | --- |
-| `elo` | [The Rating of Chessplayers, Past and Present](https://archive.org/details/ratingofchesspla0000eloa) | [API](./pairwise.py#L19) · [BibTeX](#bibtex-elo1978) |
-| `trueskill` | [TrueSkill(TM): A Bayesian Skill Rating System](https://proceedings.neurips.cc/paper_files/paper/2006/file/f44ee263952e65b3610b8ba51229d1f9-Paper.pdf) | [API](./pairwise.py#L144) · [BibTeX](#bibtex-herbrich2006trueskill) |
-| `glicko` | [Parameter Estimation in Large Dynamic Paired Comparison Experiments](https://doi.org/10.1111/1467-9876.00159) | [API](./pairwise.py#L298) · [BibTeX](#bibtex-glickman1999) |
+| `elo` | [The Rating of Chessplayers, Past and Present](https://archive.org/details/ratingofchesspla0000eloa) | [API](./pairwise.py) · [BibTeX](#bibtex-elo1978) |
+| `trueskill` | [TrueSkill(TM): A Bayesian Skill Rating System](https://proceedings.neurips.cc/paper_files/paper/2006/file/f44ee263952e65b3610b8ba51229d1f9-Paper.pdf) | [API](./pairwise.py) · [BibTeX](#bibtex-herbrich2006trueskill) |
+| `glicko` | [Parameter Estimation in Large Dynamic Paired Comparison Experiments](https://doi.org/10.1111/1467-9876.00159) | [API](./pairwise.py) · [BibTeX](#bibtex-glickman1999) |
 
 ## Bayesian Methods
 
 | `scorio.rank.[method_name]` | Paper | Reference |
 | --- | --- | --- |
-| `thompson` | [On the Likelihood that One Unknown Probability Exceeds Another in View of the Evidence of Two Samples](https://doi.org/10.1093/biomet/25.3-4.285) · [A Tutorial on Thompson Sampling](https://doi.org/10.1561/2200000070) | [API](./bayesian.py#L34) · [BibTeX](#bibtex-thompson1933) · [BibTeX](#bibtex-russo2018ts) |
-| `bayesian_mcmc` | [Rank Analysis of Incomplete Block Designs: The Method of Paired Comparisons](https://doi.org/10.1093/biomet/39.3-4.324) · [Equation of State Calculations by Fast Computing Machines](https://doi.org/10.1063/1.1699114) · [Monte Carlo Sampling Methods Using Markov Chains and Their Applications](https://doi.org/10.1093/biomet/57.1.97) | [API](./bayesian.py#L146) · [BibTeX](#bibtex-bradleyterry1952) · [BibTeX](#bibtex-metropolis1953) · [BibTeX](#bibtex-hastings1970) |
+| `thompson` | Posterior expected rank via Beta sampling, inspired by [Thompson sampling](https://doi.org/10.1093/biomet/25.3-4.285) | [API](./bayesian.py) · [BibTeX](#bibtex-thompson1933) · [BibTeX](#bibtex-russo2018ts) |
+| `bayesian_mcmc` | [Rank Analysis of Incomplete Block Designs: The Method of Paired Comparisons](https://doi.org/10.1093/biomet/39.3-4.324) · [Equation of State Calculations by Fast Computing Machines](https://doi.org/10.1063/1.1699114) · [Monte Carlo Sampling Methods Using Markov Chains and Their Applications](https://doi.org/10.1093/biomet/57.1.97) | [API](./bayesian.py) · [BibTeX](#bibtex-bradleyterry1952) · [BibTeX](#bibtex-metropolis1953) · [BibTeX](#bibtex-hastings1970) |
 
 ## Voting Methods
 
 | `scorio.rank.[method_name]` | Paper | Reference |
 | --- | --- | --- |
-| `borda` | [Mémoire sur les élections au scrutin](https://webusers.imj-prg.fr/~alexandre.guilbaud/LX2U1/Borda_Memoire_sur_les_elections_au_scrutin_MARS_1781_extrait.pdf) | [API](./voting.py#L117) · [BibTeX](#bibtex-borda1781) |
-| `copeland` | [A Reasonable Social Welfare Function](https://bibbase.org/network/publication/copeland-areasonablesocialwelfarefunction-1951) | [API](./voting.py#L190) · [BibTeX](#bibtex-copeland1951) |
-| `win_rate` | Pairwise majority-tournament win fraction (related to Copeland-style pairwise aggregation) | [API](./voting.py#L275) · [BibTeX](#bibtex-copeland1951) · [BibTeX](#bibtex-brandt2016compsocchoice) |
-| `minimax` | Simpson-Kramer minimax rule (computational treatment in [Handbook of Computational Social Choice](https://doi.org/10.1017/CBO9781107446984)) | [API](./voting.py#L347) · [BibTeX](#bibtex-brandt2016compsocchoice) |
-| `schulze` | [A new monotonic, clone-independent, reversal symmetric, and Condorcet-consistent single-winner election method](https://doi.org/10.1007/s00355-010-0475-4) | [API](./voting.py#L437) · [BibTeX](#bibtex-schulze2010) |
-| `ranked_pairs` | [Independence of clones as a criterion for voting rules](https://doi.org/10.1007/BF00433944) | [API](./voting.py#L520) · [BibTeX](#bibtex-tideman1987) |
-| `kemeny_young` | [Mathematics without Numbers](https://www.jstor.org/stable/20026581) · [Extending Condorcet's rule](https://doi.org/10.1016/0022-0531(77)90012-6) | [API](./voting.py#L621) · [BibTeX](#bibtex-kemeny1959) · [BibTeX](#bibtex-young1977) |
-| `nanson` | [Methods of Election](https://www.biodiversitylibrary.org/itemdetails/106382) | [API](./voting.py#L839) · [BibTeX](#bibtex-nanson1883) · [BibTeX](#bibtex-brandt2016compsocchoice) |
-| `baldwin` | [The technique of the Nanson preferential majority system of election](https://www.biodiversitylibrary.org/part/302140) | [API](./voting.py#L918) · [BibTeX](#bibtex-baldwin1926) · [BibTeX](#bibtex-brandt2016compsocchoice) |
-| `majority_judgment` | [Majority Judgment: Measuring, Ranking, and Electing](https://doi.org/10.7551/mitpress/9780262015134.001.0001) | [API](./voting.py#L997) · [BibTeX](#bibtex-balinskilaraki2011) |
+| `borda` | [Mémoire sur les élections au scrutin](https://webusers.imj-prg.fr/~alexandre.guilbaud/LX2U1/Borda_Memoire_sur_les_elections_au_scrutin_MARS_1781_extrait.pdf) | [API](./voting.py) · [BibTeX](#bibtex-borda1781) |
+| `copeland` | [A Reasonable Social Welfare Function](https://bibbase.org/network/publication/copeland-areasonablesocialwelfarefunction-1951) | [API](./voting.py) · [BibTeX](#bibtex-copeland1951) |
+| `win_rate` | Micro-averaged strict question-level pairwise win fraction over decisive outcomes | [API](./voting.py) |
+| `minimax` | Simpson-Kramer minimax rule (computational treatment in [Handbook of Computational Social Choice](https://doi.org/10.1017/CBO9781107446984)) | [API](./voting.py) · [BibTeX](#bibtex-brandt2016compsocchoice) |
+| `schulze` | [A new monotonic, clone-independent, reversal symmetric, and Condorcet-consistent single-winner election method](https://doi.org/10.1007/s00355-010-0475-4) | [API](./voting.py) · [BibTeX](#bibtex-schulze2010) |
+| `ranked_pairs` | [Independence of clones as a criterion for voting rules](https://doi.org/10.1007/BF00433944) | [API](./voting.py) · [BibTeX](#bibtex-tideman1987) |
+| `kemeny_young` | [Mathematics without Numbers](https://www.jstor.org/stable/20026581) · [Extending Condorcet's rule](https://doi.org/10.1016/0022-0531(77)90012-6) | [API](./voting.py) · [BibTeX](#bibtex-kemeny1959) · [BibTeX](#bibtex-young1977) |
+| `nanson` | [Methods of Election](https://www.biodiversitylibrary.org/itemdetails/106382) | [API](./voting.py) · [BibTeX](#bibtex-nanson1883) · [BibTeX](#bibtex-brandt2016compsocchoice) |
+| `baldwin` | [The technique of the Nanson preferential majority system of election](https://www.biodiversitylibrary.org/part/302140) | [API](./voting.py) · [BibTeX](#bibtex-baldwin1926) · [BibTeX](#bibtex-brandt2016compsocchoice) |
+| `majority_judgment` | [Majority Judgment: Measuring, Ranking, and Electing](https://doi.org/10.7551/mitpress/9780262015134.001.0001) | [API](./voting.py) · [BibTeX](#bibtex-balinskilaraki2011) |
 
 
 
@@ -66,48 +112,49 @@
 
 | `scorio.rank.[method_name]` | Paper | Reference |
 | --- | --- | --- |
-| `rasch` | [Probabilistic Models for Some Intelligence and Attainment Tests](https://archive.org/details/probabilisticmod0000rasc) | [API](./irt.py#L75) · [BibTeX](#bibtex-rasch1960rasch) |
-| `rasch_map` | [Bayes Modal Estimation in Item Response Models](https://doi.org/10.1007/BF02293979) | [API](./irt.py#L148) · [BibTeX](#bibtex-mislevy1986) |
-| `rasch_mml` | [Marginal Maximum Likelihood Estimation of Item Parameters: Application of an EM Algorithm](https://doi.org/10.1007/BF02293801) | [API](./irt.py#L1065) · [BibTeX](#bibtex-bockaitkin1981) · [BibTeX](#bibtex-chenhoudodd1998) |
-| `rasch_mml_credible` | [Marginal Maximum Likelihood Estimation of Item Parameters: Application of an EM Algorithm](https://doi.org/10.1007/BF02293801) · [Bayes Modal Estimation in Item Response Models](https://doi.org/10.1007/BF02293979) | [API](./irt.py#L1149) · [BibTeX](#bibtex-bockaitkin1981) · [BibTeX](#bibtex-mislevy1986) |
-| `rasch_2pl` | [Some Latent Trait Models and Their Use in Inferring an Examinee's Ability](https://faculty.ucmerced.edu/jvevea/classes/290_21/readings/week%209/Birnbaum.pdf) | [API](./irt.py#L222) · [BibTeX](#bibtex-birnbaum1968latent) |
-| `rasch_2pl_map` | [Some Latent Trait Models and Their Use in Inferring an Examinee's Ability](https://faculty.ucmerced.edu/jvevea/classes/290_21/readings/week%209/Birnbaum.pdf) · [Bayes Modal Estimation in Item Response Models](https://doi.org/10.1007/BF02293979) | [API](./irt.py#L287) · [BibTeX](#bibtex-birnbaum1968latent) · [BibTeX](#bibtex-mislevy1986) |
-| `rasch_3pl` | [Some Latent Trait Models and Their Use in Inferring an Examinee's Ability](https://faculty.ucmerced.edu/jvevea/classes/290_21/readings/week%209/Birnbaum.pdf) | [API](./irt.py#L750) · [BibTeX](#bibtex-birnbaum1968latent) |
-| `rasch_3pl_map` | [Some Latent Trait Models and Their Use in Inferring an Examinee's Ability](https://faculty.ucmerced.edu/jvevea/classes/290_21/readings/week%209/Birnbaum.pdf) · [Bayes Modal Estimation in Item Response Models](https://doi.org/10.1007/BF02293979) | [API](./irt.py#L828) · [BibTeX](#bibtex-birnbaum1968latent) · [BibTeX](#bibtex-mislevy1986) |
-| `dynamic_irt` | [A Dynamic Generalization of the Rasch Model](https://doi.org/10.1007/BF02294648) · [On Longitudinal Item Response Theory Models: A Didactic](https://doi.org/10.3102/1076998619882026) | [API](./irt.py#L467) · [BibTeX](#bibtex-verhelst1993dynamicrasch) · [BibTeX](#bibtex-wang2019longitudinalirt) |
+| `rasch` | [Probabilistic Models for Some Intelligence and Attainment Tests](https://archive.org/details/probabilisticmod0000rasc) | [API](./irt.py) · [BibTeX](#bibtex-rasch1960rasch) |
+| `rasch_map` | [Bayes Modal Estimation in Item Response Models](https://doi.org/10.1007/BF02293979) | [API](./irt.py) · [BibTeX](#bibtex-mislevy1986) |
+| `rasch_mml` | [Marginal Maximum Likelihood Estimation of Item Parameters: Application of an EM Algorithm](https://doi.org/10.1007/BF02293801) | [API](./irt.py) · [BibTeX](#bibtex-bockaitkin1981) |
+| `rasch_mml_credible` | [Marginal Maximum Likelihood Estimation of Item Parameters: Application of an EM Algorithm](https://doi.org/10.1007/BF02293801) · [Bayes Modal Estimation in Item Response Models](https://doi.org/10.1007/BF02293979) | [API](./irt.py) · [BibTeX](#bibtex-bockaitkin1981) · [BibTeX](#bibtex-mislevy1986) |
+| `rasch_2pl` | [Some Latent Trait Models and Their Use in Inferring an Examinee's Ability](https://faculty.ucmerced.edu/jvevea/classes/290_21/readings/week%209/Birnbaum.pdf) | [API](./irt.py) · [BibTeX](#bibtex-birnbaum1968latent) |
+| `rasch_2pl_map` | [Some Latent Trait Models and Their Use in Inferring an Examinee's Ability](https://faculty.ucmerced.edu/jvevea/classes/290_21/readings/week%209/Birnbaum.pdf) · [Bayes Modal Estimation in Item Response Models](https://doi.org/10.1007/BF02293979) | [API](./irt.py) · [BibTeX](#bibtex-birnbaum1968latent) · [BibTeX](#bibtex-mislevy1986) |
+| `rasch_3pl` | [Some Latent Trait Models and Their Use in Inferring an Examinee's Ability](https://faculty.ucmerced.edu/jvevea/classes/290_21/readings/week%209/Birnbaum.pdf) | [API](./irt.py) · [BibTeX](#bibtex-birnbaum1968latent) |
+| `rasch_3pl_map` | [Some Latent Trait Models and Their Use in Inferring an Examinee's Ability](https://faculty.ucmerced.edu/jvevea/classes/290_21/readings/week%209/Birnbaum.pdf) · [Bayes Modal Estimation in Item Response Models](https://doi.org/10.1007/BF02293979) | [API](./irt.py) · [BibTeX](#bibtex-birnbaum1968latent) · [BibTeX](#bibtex-mislevy1986) |
+| `dynamic_irt` | [A Dynamic Generalization of the Rasch Model](https://doi.org/10.1007/BF02294648) · [On Longitudinal Item Response Theory Models: A Didactic](https://doi.org/10.3102/1076998619882026) | [API](./irt.py) · [BibTeX](#bibtex-verhelst1993dynamicrasch) · [BibTeX](#bibtex-wang2019longitudinalirt) |
+| `mirt` | [mirt: A Multidimensional Item Response Theory Package for the R Environment](https://doi.org/10.18637/jss.v048.i06) · [Multidimensional Item Response Theory](https://doi.org/10.1007/978-0-387-89976-3) · [Bock--Aitkin MML-EM](https://doi.org/10.1007/BF02293801) | [API](./irt.py) · [BibTeX](#bibtex-chalmers2012mirt) · [BibTeX](#bibtex-reckase2009mirt) · [BibTeX](#bibtex-bockaitkin1981) |
 
 ## Graph-Based Methods
 
 | `scorio.rank.[method_name]` | Paper | Reference |
 | --- | --- | --- |
-| `pagerank` | [The PageRank Citation Ranking: Bringing Order to the Web](http://ilpubs.stanford.edu:8090/422/) | [API](./graph.py#L79) · [BibTeX](#bibtex-page1999pagerank) |
-| `spectral` | [Spectral ranking](https://doi.org/10.1017/nws.2016.21) · [The Perron–Frobenius theorem and the ranking of football teams](https://doi.org/10.1137/1035004) | [API](./graph.py#L199) · [BibTeX](#bibtex-vigna2016spectral) · [BibTeX](#bibtex-keener1993perron) |
-| `alpharank` | [α-Rank: Multi-Agent Evaluation by Evolution](https://doi.org/10.1038/s41598-019-45619-9) | [API](./graph.py#L282) · [BibTeX](#bibtex-omidshafiei2019alpharank) |
-| `nash` | [Open-ended Learning in Symmetric Zero-sum Games](https://proceedings.mlr.press/v97/balduzzi19a.html) · [Re-evaluating Evaluation](https://proceedings.neurips.cc/paper_files/paper/2018/file/cdf1035c34ec380218a8cc9a43d438f9-Paper.pdf) | [API](./graph.py#L399) · [BibTeX](#bibtex-balduzzi2019openended) · [BibTeX](#bibtex-balduzzi2018reevaluating) |
-| `rank_centrality` | [Rank Centrality: Ranking from Pairwise Comparisons](https://doi.org/10.1287/opre.2016.1534) | [API](./rank_centrality.py#L91) · [BibTeX](#bibtex-negahban2017rankcentrality) |
+| `pagerank` | [The PageRank Citation Ranking: Bringing Order to the Web](https://ilpubs.stanford.edu/422/) | [API](./graph.py) · [BibTeX](#bibtex-page1999pagerank) |
+| `spectral` | [The Perron–Frobenius theorem and the ranking of football teams](https://doi.org/10.1137/1035004) | [API](./graph.py) · [BibTeX](#bibtex-keener1993perron) |
+| `alpharank` | [α-Rank: Multi-Agent Evaluation by Evolution](https://doi.org/10.1038/s41598-019-45619-9) | [API](./graph.py) · [BibTeX](#bibtex-omidshafiei2019alpharank) |
+| `nash` | [Open-ended Learning in Symmetric Zero-sum Games](https://proceedings.mlr.press/v97/balduzzi19a.html) · [Re-evaluating Evaluation](https://proceedings.neurips.cc/paper_files/paper/2018/file/cdf1035c34ec380218a8cc9a43d438f9-Paper.pdf) | [API](./graph.py) · [BibTeX](#bibtex-balduzzi2019openended) · [BibTeX](#bibtex-balduzzi2018reevaluating) |
+| `rank_centrality` | [Rank Centrality: Ranking from Pairwise Comparisons](https://doi.org/10.1287/opre.2016.1534) | [API](./rank_centrality.py) · [BibTeX](#bibtex-negahban2017rankcentrality) |
 
 ## Seriation-Based Methods
 
 | `scorio.rank.[method_name]` | Paper | Reference |
 | --- | --- | --- |
-| `serial_rank` | [Spectral Ranking Using Seriation](https://jmlr.org/papers/v17/16-035.html) | [API](./serial_rank.py#L126) · [BibTeX](#bibtex-fogel2016serialrank) |
+| `serial_rank` | [Spectral Ranking Using Seriation](https://jmlr.org/papers/v17/16-035.html) | [API](./serial_rank.py) · [BibTeX](#bibtex-fogel2016serialrank) |
 
 ## Hodge-Theoretic Methods
 
 | `scorio.rank.[method_name]` | Paper | Reference |
 | --- | --- | --- |
-| `hodge_rank` | [Statistical Ranking and Combinatorial Hodge Theory](https://arxiv.org/abs/0811.1067) | [API](./hodge_rank.py#L119) · [BibTeX](#bibtex-jiang2009hodgerank) |
+| `hodge_rank` | [Statistical Ranking and Combinatorial Hodge Theory](https://arxiv.org/abs/0811.1067) | [API](./hodge_rank.py) · [BibTeX](#bibtex-jiang2009hodgerank) |
 
 ## Listwise and Setwise Choice Models
 
 | `scorio.rank.[method_name]` | Paper | Reference |
 | --- | --- | --- |
-| `plackett_luce` | [The Analysis of Permutations](https://doi.org/10.2307/2346567) · [MM Algorithms for Generalized Bradley--Terry Models](https://doi.org/10.1214/aos/1079120141) | [API](./listwise.py#L182) · [BibTeX](#bibtex-plackett1975permutations) · [BibTeX](#bibtex-hunter2004mmbradleyterry) |
-| `plackett_luce_map` | [Individual Choice Behavior: A Theoretical Analysis](https://archive.org/details/individualchoice0000luce) · [Efficient Bayesian Inference for Generalized Bradley--Terry Models](https://doi.org/10.1080/10618600.2012.638220) | [API](./listwise.py#L252) · [BibTeX](#bibtex-luce1959choice) · [BibTeX](#bibtex-carondoucet2012) |
-| `davidson_luce` | [Davidson--Luce Model for Multi-item Choice with Ties](https://arxiv.org/abs/1909.07123) | [API](./listwise.py#L319) · [BibTeX](#bibtex-firth2019davidsonluce) |
-| `davidson_luce_map` | [Davidson--Luce Model for Multi-item Choice with Ties](https://arxiv.org/abs/1909.07123) · [Efficient Bayesian Inference for Generalized Bradley--Terry Models](https://doi.org/10.1080/10618600.2012.638220) | [API](./listwise.py#L397) · [BibTeX](#bibtex-firth2019davidsonluce) · [BibTeX](#bibtex-carondoucet2012) |
-| `bradley_terry_luce` | [Individual Choice Behavior: A Theoretical Analysis](https://archive.org/details/individualchoice0000luce) · [Generalized Linear Models](https://doi.org/10.1007/978-1-4899-3242-6) | [API](./listwise.py#L463) · [BibTeX](#bibtex-luce1959choice) · [BibTeX](#bibtex-mccullaghnelder1989glm) |
-| `bradley_terry_luce_map` | [Individual Choice Behavior: A Theoretical Analysis](https://archive.org/details/individualchoice0000luce) · [Generalized Linear Models](https://doi.org/10.1007/978-1-4899-3242-6) · [Efficient Bayesian Inference for Generalized Bradley--Terry Models](https://doi.org/10.1080/10618600.2012.638220) | [API](./listwise.py#L517) · [BibTeX](#bibtex-luce1959choice) · [BibTeX](#bibtex-mccullaghnelder1989glm) · [BibTeX](#bibtex-carondoucet2012) |
+| `plackett_luce` | [The Analysis of Permutations](https://doi.org/10.2307/2346567) · [MM Algorithms for Generalized Bradley--Terry Models](https://doi.org/10.1214/aos/1079120141) | [API](./listwise.py) · [BibTeX](#bibtex-plackett1975permutations) · [BibTeX](#bibtex-hunter2004mmbradleyterry) |
+| `plackett_luce_map` | [Individual Choice Behavior: A Theoretical Analysis](https://archive.org/details/individualchoice0000luce) · [Efficient Bayesian Inference for Generalized Bradley--Terry Models](https://doi.org/10.1080/10618600.2012.638220) | [API](./listwise.py) · [BibTeX](#bibtex-luce1959choice) · [BibTeX](#bibtex-carondoucet2012) |
+| `davidson_luce` | [Davidson--Luce Model for Multi-item Choice with Ties](https://arxiv.org/abs/1909.07123) | [API](./listwise.py) · [BibTeX](#bibtex-firth2019davidsonluce) |
+| `davidson_luce_map` | [Davidson--Luce Model for Multi-item Choice with Ties](https://arxiv.org/abs/1909.07123) · [Efficient Bayesian Inference for Generalized Bradley--Terry Models](https://doi.org/10.1080/10618600.2012.638220) | [API](./listwise.py) · [BibTeX](#bibtex-firth2019davidsonluce) · [BibTeX](#bibtex-carondoucet2012) |
+| `bradley_terry_luce` | [Individual Choice Behavior: A Theoretical Analysis](https://archive.org/details/individualchoice0000luce) · [Generalized Linear Models](https://doi.org/10.1007/978-1-4899-3242-6) | [API](./listwise.py) · [BibTeX](#bibtex-luce1959choice) · [BibTeX](#bibtex-mccullaghnelder1989glm) |
+| `bradley_terry_luce_map` | [Individual Choice Behavior: A Theoretical Analysis](https://archive.org/details/individualchoice0000luce) · [Generalized Linear Models](https://doi.org/10.1007/978-1-4899-3242-6) · [Efficient Bayesian Inference for Generalized Bradley--Terry Models](https://doi.org/10.1080/10618600.2012.638220) | [API](./listwise.py) · [BibTeX](#bibtex-luce1959choice) · [BibTeX](#bibtex-mccullaghnelder1989glm) · [BibTeX](#bibtex-carondoucet2012) |
 
 
 
@@ -145,35 +192,33 @@
 }
 ```
 
-<a id="bibtex-liu2024stable-reasoning"></a>
-### `liu2024stable_reasoning`
+<a id="bibtex-liu2025stable-reasoning"></a>
+### `liu2025stable_reasoning`
 
 ```bibtex
-@misc{liu2024stable_reasoning,
-      title={Are Your LLMs Capable of Stable Reasoning?},
-      author={Junnan Liu and Hongwei Liu and Linchen Xiao and Ziyi Wang and Kuikun Liu and Songyang Gao and Wenwei Zhang and Songyang Zhang and Kai Chen},
-      year={2024},
-      eprint={2412.13147},
-      archivePrefix={arXiv},
-      primaryClass={cs.AI},
-      doi={10.48550/arXiv.2412.13147},
-      url={https://arxiv.org/abs/2412.13147},
+@inproceedings{liu2025stable_reasoning,
+  title     = {Are Your {LLM}s Capable of Stable Reasoning?},
+  author    = {Liu, Junnan and Liu, Hongwei and Xiao, Linchen and Wang, Ziyi and Liu, Kuikun and Gao, Songyang and Zhang, Wenwei and Zhang, Songyang and Chen, Kai},
+  booktitle = {Findings of the Association for Computational Linguistics: ACL 2025},
+  pages     = {17594--17632},
+  year      = {2025},
+  publisher = {Association for Computational Linguistics},
+  doi       = {10.18653/v1/2025.findings-acl.905},
+  url       = {https://aclanthology.org/2025.findings-acl.905/}
 }
 ```
 
-<a id="bibtex-hariri2025don"></a>
-### `hariri2025don`
+<a id="bibtex-hariri2026don"></a>
+### `hariri2026don`
 
 ```bibtex
-@misc{hariri2025don,
-      title={Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation}, 
-      author={Mohsen Hariri and Amirhossein Samandar and Michael Hinczewski and Vipin Chaudhary},
-      year={2025},
-      eprint={2510.04265},
-      archivePrefix={arXiv},
-      primaryClass={cs.AI},
-      doi={10.48550/arXiv.2510.04265},
-      url={https://arxiv.org/abs/2510.04265}, 
+@inproceedings{hariri2026don,
+  title     = {Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation},
+  author    = {Hariri, Mohsen and Samandar, Amirhossein and Hinczewski, Michael and Chaudhary, Vipin},
+  booktitle = {The Fourteenth International Conference on Learning Representations},
+  year      = {2026},
+  url       = {https://openreview.net/forum?id=PTXi3Ef4sT},
+  doi       = {10.48550/arXiv.2510.04265}
 }
 ```
 
@@ -536,7 +581,7 @@
   journal = {Applied Statistics},
   volume  = {24},
   number  = {2},
-  pages   = {193},
+  pages   = {193--202},
   year    = {1975},
   doi     = {10.2307/2346567},
   url     = {https://doi.org/10.2307/2346567}
@@ -734,6 +779,37 @@
 }
 ```
 
+<a id="bibtex-chalmers2012mirt"></a>
+### `chalmers2012mirt`
+
+```bibtex
+@article{chalmers2012mirt,
+  title   = {mirt: A Multidimensional Item Response Theory Package for the {R} Environment},
+  author  = {Chalmers, R. Philip},
+  journal = {Journal of Statistical Software},
+  volume  = {48},
+  number  = {6},
+  pages   = {1--29},
+  year    = {2012},
+  doi     = {10.18637/jss.v048.i06},
+  url     = {https://doi.org/10.18637/jss.v048.i06}
+}
+```
+
+<a id="bibtex-reckase2009mirt"></a>
+### `reckase2009mirt`
+
+```bibtex
+@book{reckase2009mirt,
+  title     = {Multidimensional Item Response Theory},
+  author    = {Reckase, Mark D.},
+  publisher = {Springer},
+  year      = {2009},
+  doi       = {10.1007/978-0-387-89976-3},
+  url       = {https://doi.org/10.1007/978-0-387-89976-3}
+}
+```
+
 ### Graph and Spectral Methods
 
 <a id="bibtex-page1999pagerank"></a>
@@ -747,7 +823,7 @@
   year        = {1999},
   number      = {1999-66},
   month       = nov,
-  url         = {http://ilpubs.stanford.edu:8090/422/},
+  url         = {https://ilpubs.stanford.edu/422/},
   note        = {Previous number: {SIDL-WP-1999-0120}}
 }
 ```

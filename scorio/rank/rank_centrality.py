@@ -28,24 +28,27 @@ from ._base import build_pairwise_counts, build_pairwise_wins, validate_input
 from ._types import RankMethod, RankResult
 
 
-def _is_connected_undirected(adj: np.ndarray) -> bool:
-    """Check connectivity of an undirected graph given a boolean adjacency matrix."""
+def _is_strongly_connected(adj: np.ndarray) -> bool:
+    """Check strong connectivity of a directed boolean adjacency matrix."""
     n = adj.shape[0]
     if n == 0:
         return True
 
-    seen = np.zeros(n, dtype=bool)
-    stack = [0]
-    seen[0] = True
+    def reaches_all(graph: np.ndarray) -> bool:
+        seen = np.zeros(n, dtype=bool)
+        stack = [0]
+        seen[0] = True
 
-    while stack:
-        i = stack.pop()
-        neighbors = np.flatnonzero(adj[i] & ~seen)
-        if neighbors.size:
-            seen[neighbors] = True
-            stack.extend(int(j) for j in neighbors)
+        while stack:
+            i = stack.pop()
+            neighbors = np.flatnonzero(graph[i] & ~seen)
+            if neighbors.size:
+                seen[neighbors] = True
+                stack.extend(int(j) for j in neighbors)
 
-    return bool(np.all(seen))
+        return bool(np.all(seen))
+
+    return reaches_all(adj) and reaches_all(adj.T)
 
 
 def _stationary_distribution_power(
@@ -96,6 +99,8 @@ def rank_centrality(
         tie_handling:
             - "ignore": only decisive comparisons (i correct, j incorrect)
             - "half": treat ties (both same) as 0.5 win for each side
+            Without smoothing or teleportation, ``"ignore"`` requires the
+            positive directed transition support to be strongly connected.
         smoothing: Nonnegative pseudocount added to every directed win count.
             Use this to avoid disconnected graphs when `tie_handling="ignore"`.
         teleport: Teleportation probability in [0, 1). When > 0, makes the
@@ -117,7 +122,12 @@ def rank_centrality(
             \\quad
             P_{ii} = 1 - \\sum_{j\\neq i} P_{ij}
 
-        where ``P_hat`` is computed from pairwise tied-split outcomes.
+        where ``P_hat`` is computed according to ``tie_handling``.
+
+    Raises:
+        ValueError: If unregularized decisive-only transition support is not
+            strongly connected. Use ``smoothing``, ``teleport``, or
+            ``tie_handling="half"`` in that case.
 
     References:
         Negahban, S., Oh, S., & Shah, D. (2017).
@@ -164,30 +174,32 @@ def rank_centrality(
     deg = adj.sum(axis=1)
     d_max = int(deg.max()) if deg.size else 0
 
-    if d_max == 0:
-        scores = np.ones(L, dtype=float) / L
-        ranking = rank_scores(scores)[method]
-        return (ranking, scores) if return_scores else ranking
-
-    if (
-        teleport == 0.0
-        and smoothing == 0.0
-        and tie_handling == "ignore"
-        and not _is_connected_undirected(adj)
-    ):
-        # With decisive-only comparisons and no regularization, the graph may
-        # be disconnected; Rank Centrality is not identifiable across components.
-        raise ValueError(
-            "Rank Centrality requires a connected comparison graph; "
-            "use teleport>0, smoothing>0, or tie_handling='half'."
-        )
-
     # Transition matrix (row-stochastic), Negahban et al. (2017):
     #   P_{ij} = (1/d_max) * p̂_{j,i} for i!=j on edges, else 0
     #   P_{ii} = 1 - Σ_{j!=i} P_{ij}
     with np.errstate(divide="ignore", invalid="ignore"):
         p_ji = np.zeros((L, L), dtype=float)
         p_ji[adj] = (wins_s.T[adj] / denom[adj]).astype(float)
+
+    if (
+        teleport == 0.0
+        and smoothing == 0.0
+        and tie_handling == "ignore"
+        and not _is_strongly_connected(p_ji > 0.0)
+    ):
+        # Undirected comparison connectivity is insufficient when empirical
+        # transition probabilities vanish in one direction: a reducible chain
+        # can collapse distinct models into the same zero stationary mass.
+        raise ValueError(
+            "Rank Centrality requires strongly connected positive transition "
+            "support when tie_handling='ignore'; use teleport>0, smoothing>0, "
+            "or tie_handling='half'."
+        )
+
+    if d_max == 0:
+        scores = np.ones(L, dtype=float) / L
+        ranking = rank_scores(scores)[method]
+        return (ranking, scores) if return_scores else ranking
 
     P = np.zeros((L, L), dtype=float)
     P[adj] = p_ji[adj] / float(d_max)

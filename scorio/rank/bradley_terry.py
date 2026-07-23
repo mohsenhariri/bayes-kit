@@ -59,9 +59,21 @@ from scipy.optimize import minimize
 
 from scorio.utils import rank_scores
 
-from ._base import build_pairwise_counts, build_pairwise_wins, validate_input
+from ._base import (
+    average_equivalent_scores,
+    build_pairwise_counts,
+    build_pairwise_wins,
+    is_strongly_connected,
+    validate_input,
+)
 from ._types import RankMethod, RankResult
-from .priors import GaussianPrior, Prior
+from .priors import (
+    CauchyPrior,
+    GaussianPrior,
+    LaplacePrior,
+    Prior,
+    UniformPrior,
+)
 
 
 def _validate_max_iter(max_iter: int) -> int:
@@ -108,6 +120,17 @@ def _coerce_prior(prior: Prior | float) -> Prior:
         )
 
     return prior
+
+
+def _prior_is_exchangeable(prior: Prior) -> bool:
+    """Whether permuting model labels leaves the prior penalty unchanged."""
+    return type(prior) in {GaussianPrior, LaplacePrior, CauchyPrior, UniformPrior}
+
+
+def _require_optimizer_success(result, model_name: str) -> None:
+    """Reject unfinished optimizer iterates as parameter estimates."""
+    if not result.success:
+        raise RuntimeError(f"{model_name} optimization failed: {result.message}")
 
 
 def bradley_terry(
@@ -161,23 +184,28 @@ def bradley_terry(
         >>> import numpy as np
         >>> from scorio import rank
         >>> R = np.array([
-        ...     [[1, 1], [1, 1]],
-        ...     [[0, 0], [0, 0]],
+        ...     [1, 0, 0, 1],
+        ...     [0, 1, 0, 0],
+        ...     [0, 0, 1, 0],
         ... ])
         >>> ranks, scores = rank.bradley_terry(R, return_scores=True)
         >>> ranks.tolist()
-        [1, 2]
+        [1, 2, 2]
         >>> float(scores[0] > scores[1])
         1.0
 
     Notes:
         If there are no decisive outcomes at all, all strengths are returned
-        equal because relative ability is unidentifiable.
+        equal because relative ability is unidentifiable. Otherwise, a finite
+        ML estimate exists only when the directed win graph is strongly
+        connected; separated data raises ``ValueError`` and should be fit with
+        :func:`bradley_terry_map`.
     """
     R = validate_input(R)
     max_iter = _validate_max_iter(max_iter)
     wins = build_pairwise_wins(R)
     scores = _estimate_bt_ml(wins, max_iter=max_iter)
+    scores = average_equivalent_scores(scores, R)
     ranking = rank_scores(scores)[method]
     return (ranking, scores) if return_scores else ranking
 
@@ -258,6 +286,8 @@ def bradley_terry_map(
 
     wins = build_pairwise_wins(R)
     scores = _estimate_bt_map(wins, prior, max_iter=max_iter)
+    if _prior_is_exchangeable(prior):
+        scores = average_equivalent_scores(scores, R)
     ranking = rank_scores(scores)[method]
     return (ranking, scores) if return_scores else ranking
 
@@ -324,6 +354,7 @@ def bradley_terry_davidson(
     max_iter = _validate_max_iter(max_iter)
     wins, ties = build_pairwise_counts(R)
     scores = _estimate_bt_davidson(wins, ties, max_iter=max_iter)
+    scores = average_equivalent_scores(scores, R)
     ranking = rank_scores(scores)[method]
     return (ranking, scores) if return_scores else ranking
 
@@ -398,6 +429,8 @@ def bradley_terry_davidson_map(
 
     wins, ties = build_pairwise_counts(R)
     scores = _estimate_bt_davidson_map(wins, ties, prior, max_iter=max_iter)
+    if _prior_is_exchangeable(prior):
+        scores = average_equivalent_scores(scores, R)
     ranking = rank_scores(scores)[method]
     return (ranking, scores) if return_scores else ranking
 
@@ -474,6 +507,7 @@ def rao_kupper(
     tie_strength = _validate_tie_strength(tie_strength)
     wins, ties = build_pairwise_counts(R)
     scores = _estimate_rao_kupper_ml(wins, ties, tie_strength, max_iter=max_iter)
+    scores = average_equivalent_scores(scores, R)
     ranking = rank_scores(scores)[method]
     return (ranking, scores) if return_scores else ranking
 
@@ -540,6 +574,8 @@ def rao_kupper_map(
     scores = _estimate_rao_kupper_map(
         wins, ties, tie_strength, prior, max_iter=max_iter
     )
+    if _prior_is_exchangeable(prior):
+        scores = average_equivalent_scores(scores, R)
     ranking = rank_scores(scores)[method]
     return (ranking, scores) if return_scores else ranking
 
@@ -550,6 +586,12 @@ def _estimate_bt_ml(wins: np.ndarray, max_iter: int = 500) -> np.ndarray:
 
     if float(np.sum(wins)) <= 0.0:
         return np.ones(n, dtype=float)
+    if not is_strongly_connected(wins > 0):
+        raise ValueError(
+            "Bradley-Terry has no finite maximum-likelihood estimate because "
+            "the directed win graph is not strongly connected; use "
+            "bradley_terry_map for a regularized estimate."
+        )
 
     def negative_log_likelihood(log_pi):
         log_pi = log_pi - log_pi.mean()
@@ -577,6 +619,7 @@ def _estimate_bt_ml(wins: np.ndarray, max_iter: int = 500) -> np.ndarray:
         method="L-BFGS-B",
         options={"maxiter": max_iter},
     )
+    _require_optimizer_success(result, "bradley_terry")
 
     log_pi = result.x - result.x.mean()
     return np.exp(np.clip(log_pi, -30.0, 30.0))
@@ -584,6 +627,9 @@ def _estimate_bt_ml(wins: np.ndarray, max_iter: int = 500) -> np.ndarray:
 
 def _estimate_bt_map(wins: np.ndarray, prior: Prior, max_iter: int = 500) -> np.ndarray:
     """Estimate Bradley-Terry strengths via MAP with configurable prior."""
+    if type(prior) is UniformPrior:
+        return _estimate_bt_ml(wins, max_iter=max_iter)
+
     n = wins.shape[0]
     no_decisive_outcomes = float(np.sum(wins)) <= 0.0
 
@@ -624,6 +670,7 @@ def _estimate_bt_map(wins: np.ndarray, prior: Prior, max_iter: int = 500) -> np.
         method="L-BFGS-B",
         options={"maxiter": max_iter},
     )
+    _require_optimizer_success(result, "bradley_terry_map")
 
     log_pi = result.x - result.x.mean()
     scores = np.exp(np.clip(log_pi, -30.0, 30.0))
@@ -641,6 +688,13 @@ def _estimate_bt_davidson(
 
     if float(np.sum(wins)) <= 0.0:
         return np.ones(n, dtype=float)
+    existence_graph = (wins > 0) | (ties > 0)
+    if not is_strongly_connected(existence_graph):
+        raise ValueError(
+            "Bradley-Terry-Davidson has no finite maximum-likelihood strength "
+            "estimate because its win/tie graph is not strongly connected; use "
+            "bradley_terry_davidson_map with a proper prior."
+        )
 
     def negative_log_likelihood(params):
         log_pi = params[:n]
@@ -685,6 +739,7 @@ def _estimate_bt_davidson(
         method="L-BFGS-B",
         options={"maxiter": max_iter},
     )
+    _require_optimizer_success(result, "bradley_terry_davidson")
 
     log_pi = result.x[:n] - result.x[:n].mean()
     return np.exp(np.clip(log_pi, -30.0, 30.0))
@@ -694,6 +749,9 @@ def _estimate_bt_davidson_map(
     wins: np.ndarray, ties: np.ndarray, prior: Prior, max_iter: int = 500
 ) -> np.ndarray:
     """Estimate Bradley-Terry-Davidson strengths with tie parameter via MAP."""
+    if type(prior) is UniformPrior:
+        return _estimate_bt_davidson(wins, ties, max_iter=max_iter)
+
     n = wins.shape[0]
     eps = 1e-10
     no_decisive_outcomes = float(np.sum(wins)) <= 0.0
@@ -751,6 +809,7 @@ def _estimate_bt_davidson_map(
         method="L-BFGS-B",
         options={"maxiter": max_iter},
     )
+    _require_optimizer_success(result, "bradley_terry_davidson_map")
 
     log_pi = result.x[:n] - result.x[:n].mean()
     scores = np.exp(np.clip(log_pi, -30.0, 30.0))
@@ -775,6 +834,13 @@ def _estimate_rao_kupper_ml(
         raise ValueError("tie_strength=1.0 implies no ties, but tie counts exist")
     if float(np.sum(wins)) <= 0.0:
         return np.ones(n, dtype=float)
+    existence_graph = (wins > 0) | (ties > 0)
+    if not is_strongly_connected(existence_graph):
+        raise ValueError(
+            "Rao-Kupper has no finite maximum-likelihood strength estimate "
+            "because its win/tie graph is not strongly connected; use "
+            "rao_kupper_map with a proper prior."
+        )
 
     def negative_log_likelihood(log_pi: np.ndarray) -> float:
         log_pi = log_pi - log_pi.mean()
@@ -819,6 +885,7 @@ def _estimate_rao_kupper_ml(
         method="L-BFGS-B",
         options={"maxiter": max_iter},
     )
+    _require_optimizer_success(result, "rao_kupper")
 
     log_pi = result.x - result.x.mean()
     return np.exp(np.clip(log_pi, -30.0, 30.0))
@@ -833,6 +900,9 @@ def _estimate_rao_kupper_map(
 ) -> np.ndarray:
     n = wins.shape[0]
     eps = 1e-12
+
+    if type(prior) is UniformPrior:
+        return _estimate_rao_kupper_ml(wins, ties, tie_strength, max_iter=max_iter)
 
     kappa = _validate_tie_strength(tie_strength)
 
@@ -891,6 +961,7 @@ def _estimate_rao_kupper_map(
         method="L-BFGS-B",
         options={"maxiter": max_iter},
     )
+    _require_optimizer_success(result, "rao_kupper_map")
 
     log_pi = result.x - result.x.mean()
     scores = np.exp(np.clip(log_pi, -30.0, 30.0))

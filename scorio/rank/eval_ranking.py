@@ -105,8 +105,8 @@ def bayes(
     References:
         Hariri, M., Samandar, A., Hinczewski, M., & Chaudhary, V. (2026).
         Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation.
-        *ICLR 2026*, *arXiv:2510.04265*.
-        https://arxiv.org/abs/2510.04265
+        *ICLR 2026*.
+        https://openreview.net/forum?id=PTXi3Ef4sT
 
     Args:
         R: Categorical outcome tensor with shape ``(L, M, N)`` or matrix
@@ -114,11 +114,11 @@ def bayes(
             ``{0, ..., C}``.
         w: Weight vector of shape ``(C+1,)`` mapping categories to scores.
             If not provided and R is binary (contains only 0 and 1), defaults
-            to ``[1, 0]``. For non-binary R, w is required.
+            to ``[0, 1]``. For non-binary R, w is required.
         R0: Optional prior outcomes. Supported shapes:
             - ``(M, D)``: one shared prior matrix reused for all models.
             - ``(L, M, D)``: model-specific prior outcomes.
-        quantile: Optional quantile ``q`` in ``[0, 1]``. If ``None``, rank by
+        quantile: Optional quantile ``q`` in ``(0, 1)``. If ``None``, rank by
             posterior mean. Otherwise rank by ``mu_l + Phi^{-1}(q) sigma_l``.
         method: Tie-handling rule for score-to-rank conversion.
         return_scores: If ``True``, return ``(ranking, scores)``.
@@ -160,15 +160,32 @@ def bayes(
     R = validate_input(R, binary_only=False)
     L, M, N = R.shape
 
-    if quantile is not None and not (0.0 <= quantile <= 1.0):
-        raise ValueError(f"quantile must be in [0, 1]; got {quantile}")
+    if quantile is not None:
+        try:
+            quantile = float(quantile)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"quantile must be in (0, 1); got {quantile}") from exc
+        if not np.isfinite(quantile) or not (0.0 < quantile < 1.0):
+            raise ValueError(f"quantile must be in (0, 1); got {quantile}")
 
     R0_shared: np.ndarray | None = None
     R0_per_model: np.ndarray | None = None
 
     # Validate and normalize R0
     if R0 is not None:
-        R0 = np.asarray(R0, dtype=int)
+        R0_array = np.asarray(R0)
+        if np.issubdtype(R0_array.dtype, np.bool_):
+            R0 = R0_array.astype(int, copy=False)
+        else:
+            if not np.issubdtype(R0_array.dtype, np.number) or np.issubdtype(
+                R0_array.dtype, np.complexfloating
+            ):
+                raise ValueError("R0 must contain real, finite integer-valued outcomes")
+            if not np.isfinite(R0_array).all():
+                raise ValueError("R0 must contain real, finite integer-valued outcomes")
+            if not np.equal(R0_array, np.floor(R0_array)).all():
+                raise ValueError("R0 must contain real, finite integer-valued outcomes")
+            R0 = R0_array.astype(int, copy=False)
 
         if R0.ndim == 2:
             if R0.shape[0] != M:
@@ -334,14 +351,14 @@ def g_pass_at_k_tau(
 
     Method context:
         G-Pass@k_tau measures the probability of obtaining at least
-        ``ceil(tau * k)`` successes in ``k`` draws without replacement.
+        ``max(1, ceil(tau * k))`` successes in ``k`` draws without replacement.
         It interpolates between Pass@k (small tau) and Pass-hat@k (tau=1).
 
     References:
         Liu, J., Liu, H., Xiao, L., et al. (2025).
         Are Your LLMs Capable of Stable Reasoning?
-        *arXiv:2412.13147*.
-        https://arxiv.org/abs/2412.13147
+        *Findings of ACL 2025*, 17594--17632.
+        https://doi.org/10.18653/v1/2025.findings-acl.905
 
     Args:
         R: Binary outcome tensor of shape ``(L, M, N)`` or matrix ``(L, M)``.
@@ -362,12 +379,12 @@ def g_pass_at_k_tau(
         .. math::
             s_l^{\\mathrm{G\\text{-}Pass@}k_\\tau}
             = \\frac{1}{M} \\sum_{m=1}^{M}
-            \\Pr\\left(X_{lm} \\ge \\lceil \\tau k \\rceil\\right)
+            \\Pr\\left(X_{lm} \\ge \\max(1,\\lceil \\tau k \\rceil)\\right)
 
         .. math::
-            \\Pr\\left(X_{lm} \\ge \\lceil \\tau k \\rceil\\right)
+            \\Pr\\left(X_{lm} \\ge \\max(1,\\lceil \\tau k \\rceil)\\right)
             =
-            \\sum_{j=\\lceil \\tau k \\rceil}^{k}
+            \\sum_{j=\\max(1,\\lceil \\tau k \\rceil)}^{k}
             \\frac{{\\nu_{lm} \\choose j}{N-\\nu_{lm} \\choose k-j}}
                  {{N \\choose k}}
 
@@ -403,13 +420,14 @@ def mg_pass_at_k(
     Method context:
         mG-Pass@k aggregates G-Pass@k_tau for ``tau in [0.5, 1]`` via the
         discrete summation proposed in the G-Pass literature, producing a
-        stability-focused score.
+        stability-focused score. This summation approximates the continuous
+        area over that interval; for odd ``k`` the two are not exactly equal.
 
     References:
         Liu, J., Liu, H., Xiao, L., et al. (2025).
         Are Your LLMs Capable of Stable Reasoning?
-        *arXiv:2412.13147*.
-        https://arxiv.org/abs/2412.13147
+        *Findings of ACL 2025*, 17594--17632.
+        https://doi.org/10.18653/v1/2025.findings-acl.905
 
     Args:
         R: Binary outcome tensor of shape ``(L, M, N)`` or matrix ``(L, M)``.

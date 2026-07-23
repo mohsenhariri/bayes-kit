@@ -156,9 +156,184 @@ def sigmoid(x: np.ndarray) -> np.ndarray:
     return 1.0 / (1.0 + np.exp(-np.clip(x, -30, 30)))
 
 
+def is_strongly_connected(adjacency: npt.ArrayLike) -> bool:
+    """Return whether every vertex is reachable in both graph directions."""
+    graph = np.asarray(adjacency, dtype=bool)
+    if graph.ndim != 2 or graph.shape[0] != graph.shape[1]:
+        raise ValueError("adjacency must be a square matrix")
+    n_vertices = graph.shape[0]
+    if n_vertices <= 1:
+        return True
+
+    def reachable(edges: np.ndarray) -> npt.NDArray[np.bool_]:
+        seen = np.zeros(n_vertices, dtype=bool)
+        stack = [0]
+        seen[0] = True
+        while stack:
+            vertex = stack.pop()
+            for neighbour in np.flatnonzero(edges[vertex] & ~seen):
+                seen[neighbour] = True
+                stack.append(int(neighbour))
+        return seen
+
+    return bool(reachable(graph).all() and reachable(graph.T).all())
+
+
+def average_equivalent_scores(
+    scores: npt.ArrayLike,
+    sufficient_statistics: npt.ArrayLike,
+) -> npt.NDArray[np.float64]:
+    """
+    Average scores for observationally indistinguishable model rows.
+
+    Optimization and Monte Carlo error must not turn exact likelihood
+    symmetries into arbitrary strict ranks. ``sufficient_statistics`` may be
+    the original response tensor or a lower-dimensional sufficient statistic;
+    its first axis must index the same models as ``scores``.
+    """
+    values = np.asarray(scores, dtype=float)
+    statistics = np.asarray(sufficient_statistics)
+    if values.ndim != 1:
+        raise ValueError("scores must be a one-dimensional array")
+    if statistics.ndim < 1 or statistics.shape[0] != values.size:
+        raise ValueError("sufficient_statistics must have one row for every score")
+
+    rows = statistics.reshape(values.size, -1)
+    _, groups = np.unique(rows, axis=0, return_inverse=True)
+    result = values.copy()
+    for group in range(int(groups.max()) + 1):
+        members = groups == group
+        if np.count_nonzero(members) > 1:
+            result[members] = float(np.mean(values[members]))
+    return result
+
+
+def average_event_exchangeable_scores(
+    scores: npt.ArrayLike,
+    observations: npt.ArrayLike,
+) -> npt.NDArray[np.float64]:
+    """Average exact model orbits under permutations of observation columns.
+
+    Two models belong to the same orbit when some simultaneous permutation of
+    model rows and observation columns preserves the complete data matrix and
+    maps one model to the other.  Such labels are not distinguished by any
+    exchangeable model fitted to these observations, even when the symmetry
+    requires moving several model rows at once.
+    """
+    values = np.asarray(scores, dtype=float)
+    data = np.asarray(observations)
+    if data.ndim < 2 or data.shape[0] != values.size:
+        raise ValueError("observations must have one row for every score")
+    data = data.reshape(values.size, -1)
+
+    def projection_matches(source_rows: list[int], target_rows: list[int]) -> bool:
+        source = data[source_rows]
+        target = data[target_rows]
+        source_order = np.lexsort(source[::-1, :])
+        target_order = np.lexsort(target[::-1, :])
+        return bool(np.array_equal(source[:, source_order], target[:, target_order]))
+
+    # A row's multiset of values is an inexpensive, exact automorphism
+    # invariant.  The backtracking projection test below supplies the full
+    # proof; this signature only reduces its candidate set.
+    row_signatures = [tuple(np.sort(row).tolist()) for row in data]
+    parent = np.arange(values.size)
+
+    def find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = int(parent[index])
+        return index
+
+    def union(first: int, second: int) -> None:
+        first_root = find(first)
+        second_root = find(second)
+        if first_root != second_root:
+            parent[second_root] = first_root
+
+    def find_automorphism(source: int, target: int) -> np.ndarray | None:
+        """Find a row bijection that extends source -> target, if one exists."""
+        if row_signatures[source] != row_signatures[target]:
+            return None
+
+        source_rows = [source]
+        target_rows = [target]
+        used_source = np.zeros(values.size, dtype=bool)
+        used_target = np.zeros(values.size, dtype=bool)
+        used_source[source] = True
+        used_target[target] = True
+        mapping = np.full(values.size, -1, dtype=int)
+        mapping[source] = target
+        signature_sizes = {
+            signature: row_signatures.count(signature)
+            for signature in set(row_signatures)
+        }
+        source_order = sorted(
+            (index for index in range(values.size) if index != source),
+            key=lambda index: signature_sizes[row_signatures[index]],
+        )
+
+        if not projection_matches(source_rows, target_rows):
+            return None
+
+        def search() -> bool:
+            if len(source_rows) == values.size:
+                return True
+
+            next_source = next(
+                index for index in source_order if not used_source[index]
+            )
+            compatible: list[int] = []
+            candidate_source_rows = [*source_rows, next_source]
+            for candidate_target in np.flatnonzero(~used_target):
+                candidate_target = int(candidate_target)
+                if row_signatures[next_source] != row_signatures[candidate_target]:
+                    continue
+                if projection_matches(
+                    candidate_source_rows,
+                    [*target_rows, candidate_target],
+                ):
+                    compatible.append(candidate_target)
+            if not compatible:
+                return False
+
+            used_source[next_source] = True
+            source_rows.append(next_source)
+            for candidate_target in compatible:
+                used_target[candidate_target] = True
+                target_rows.append(candidate_target)
+                mapping[next_source] = candidate_target
+                if search():
+                    return True
+                mapping[next_source] = -1
+                target_rows.pop()
+                used_target[candidate_target] = False
+            source_rows.pop()
+            used_source[next_source] = False
+            return False
+
+        return mapping if search() else None
+
+    for first in range(values.size):
+        for second in range(first + 1, values.size):
+            if find(first) == find(second):
+                continue
+            automorphism = find_automorphism(first, second)
+            if automorphism is None:
+                continue
+            for source, target in enumerate(automorphism):
+                union(source, int(target))
+
+    groups = np.array([find(index) for index in range(values.size)])
+    return average_equivalent_scores(values, groups[:, None])
+
+
 __all__ = [
     "validate_input",
     "build_pairwise_wins",
     "build_pairwise_counts",
     "sigmoid",
+    "is_strongly_connected",
+    "average_equivalent_scores",
+    "average_event_exchangeable_scores",
 ]

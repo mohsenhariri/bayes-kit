@@ -26,7 +26,11 @@ import numpy as np
 
 from scorio.utils import rank_scores
 
-from ._base import build_pairwise_wins, validate_input
+from ._base import (
+    average_equivalent_scores,
+    build_pairwise_wins,
+    validate_input,
+)
 from ._types import RankMethod, RankResult
 
 
@@ -40,10 +44,11 @@ def thompson(
     return_scores: bool = False,
 ) -> RankResult:
     """
-    Rank models by Thompson-sampling posterior expected rank.
+    Rank models by posterior expected rank via Beta posterior sampling.
 
     Method context:
-        This method assumes each model has one latent Bernoulli success
+        Inspired by Thompson sampling, this offline estimator assumes each
+        model has one latent Bernoulli success
         probability over all ``M*N`` outcomes and uses the conjugate
         Beta-Binomial posterior. Ranking score is the negative Monte Carlo
         estimate of posterior expected rank.
@@ -147,6 +152,9 @@ def thompson(
     avg_ranks = rank_sums / n_samples
     # Larger score is better: negative average rank.
     scores = -avg_ranks
+    scores = average_equivalent_scores(
+        scores, np.column_stack((post_alphas, post_betas))
+    )
     ranking = rank_scores(scores)[method]
     return (ranking, scores) if return_scores else ranking
 
@@ -314,6 +322,7 @@ def bayesian_mcmc(
 
     # Posterior mean estimate.
     scores = np.mean(samples, axis=0)
+    scores = average_equivalent_scores(scores, R)
 
     ranking = rank_scores(scores)[method]
     return (ranking, scores) if return_scores else ranking
