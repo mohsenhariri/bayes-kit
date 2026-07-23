@@ -93,7 +93,12 @@ def _finalize(selected: list[Any], single: bool) -> Any:
     """Return a scalar for a single question, else an ``(M,)`` object array."""
     if single:
         return selected[0]
-    return np.array(selected, dtype=object)
+    # ``np.array(selected, dtype=object)`` still expands equal-length tuple
+    # labels into an extra axis. Fill an explicitly one-dimensional array so a
+    # hashable sequence-valued label remains one answer object per question.
+    out = np.empty(len(selected), dtype=object)
+    out[:] = selected
+    return out
 
 
 def _finalize_index(indices: list[int], single: bool) -> Any:
