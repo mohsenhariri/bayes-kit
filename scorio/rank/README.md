@@ -5,7 +5,28 @@ or model-by-question-by-trial tensor; `bayes` additionally supports integer
 categorical outcomes. Several methods adapt their source model by constructing
 pairwise or setwise outcomes from each question-trial event.
 
-Important implementation scope:
+We introduce the `scorio.rank` APIs in
+[Ranking Reasoning LLMs under Test-Time Scaling](https://aclanthology.org/2026.acl-long.1544/)
+(ACL 2026).
+
+If you use these ranking APIs, please cite this work:
+
+```bibtex
+@inproceedings{hariri-etal-2026-ranking,
+  title     = {Ranking Reasoning {LLM}s under Test-Time Scaling},
+  author    = {Hariri, Mohsen and Hinczewski, Michael and Ma, Jing and Chaudhary, Vipin},
+  booktitle = {Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)},
+  month     = jul,
+  year      = {2026},
+  address   = {San Diego, California, United States},
+  publisher = {Association for Computational Linguistics},
+  pages     = {33437--33478},
+  doi       = {10.18653/v1/2026.acl-long.1544},
+  url       = {https://aclanthology.org/2026.acl-long.1544/}
+}
+```
+
+Notes:
 
 - Unregularized Bradley-Terry and decisive/composite Luce maximum-likelihood
   fits require a strongly connected directed win graph. Their tie-model
