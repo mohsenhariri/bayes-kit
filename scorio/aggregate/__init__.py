@@ -125,6 +125,10 @@ Online early stopping (:mod:`~scorio.aggregate.online`):
 
 - ``adaptive_consistency_stop``: stop sampling when the top-two answer counts
   make the majority decided (Aggarwal et al., 2023).
+- ``adaptive_consistency_dirichlet_stop``: use the full observed-answer
+  Dirichlet posterior (Aggarwal et al., 2023).
+- ``adaptive_consistency_crp_stop``: model unseen answers with the paper's
+  finite-horizon CRP comparator (Aggarwal et al., 2023).
 - ``esc_stop``: stop sampling when a window of samples fully agrees (Li et al.,
   2024).
 - ``deepconf_stop_threshold`` / ``deepconf_online_stop``: warmup-calibrated
@@ -152,6 +156,8 @@ from .confidence import (
     varentropy,
 )
 from .online import (
+    adaptive_consistency_crp_stop,
+    adaptive_consistency_dirichlet_stop,
     adaptive_consistency_stop,
     deepconf_online_stop,
     deepconf_stop_threshold,
@@ -204,6 +210,8 @@ __all__ = [
     "cges_stop",
     # online early stopping
     "adaptive_consistency_stop",
+    "adaptive_consistency_dirichlet_stop",
+    "adaptive_consistency_crp_stop",
     "esc_stop",
     "deepconf_stop_threshold",
     "deepconf_online_stop",
