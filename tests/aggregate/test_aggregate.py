@@ -50,6 +50,22 @@ class TestMajorityVote:
     def test_integer_answer_labels(self) -> None:
         assert agg.majority_vote([3, 3, 7]) == 3
 
+    def test_batch_preserves_tuple_answer_labels(self) -> None:
+        answers = np.empty((2, 3), dtype=object)
+        answers[0] = [(1, 2), (1, 2), (3, 4)]
+        answers[1] = [(5, 6), (7, 8), (7, 8)]
+
+        out = agg.majority_vote(answers)
+
+        assert out.shape == (2,)
+        assert out.tolist() == [(1, 2), (7, 8)]
+
+    def test_single_question_accepts_explicit_object_array_of_tuples(self) -> None:
+        answers = np.empty(3, dtype=object)
+        answers[:] = [(1, 2), (3, 4), (1, 2)]
+
+        assert agg.majority_vote(answers) == (1, 2)
+
 
 class TestWeightedMajorityVote:
     def test_sum_vs_mean_differ(self) -> None:
@@ -107,6 +123,23 @@ class TestBestOfN:
     def test_batch(self) -> None:
         out = agg.best_of_n([["A", "B"], ["C", "D"]], [[0.9, 0.1], [0.2, 0.8]])
         assert out.tolist() == ["A", "D"]
+
+    def test_batch_metadata_preserves_tuple_answer_labels(self) -> None:
+        answers = np.empty((2, 2), dtype=object)
+        answers[0] = [(1, 2), (3, 4)]
+        answers[1] = [(5, 6), (7, 8)]
+
+        selected, index, score = agg.best_of_n(
+            answers,
+            [[0.1, 0.9], [0.8, 0.2]],
+            return_index=True,
+            return_score=True,
+        )
+
+        assert selected.shape == (2,)
+        assert selected.tolist() == [(3, 4), (5, 6)]
+        assert index.tolist() == [1, 0]
+        assert score.tolist() == [0.9, 0.8]
 
     def test_missing_scores_raises(self) -> None:
         with pytest.raises(TypeError):

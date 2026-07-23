@@ -99,6 +99,7 @@ def rank_centrality(
         tie_handling:
             - "ignore": only decisive comparisons (i correct, j incorrect)
             - "half": treat ties (both same) as 0.5 win for each side
+
             Without smoothing or teleportation, ``"ignore"`` requires the
             positive directed transition support to be strongly connected.
         smoothing: Nonnegative pseudocount added to every directed win count.
