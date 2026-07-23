@@ -9,6 +9,8 @@ We introduce the `scorio.rank` APIs in
 [Ranking Reasoning LLMs under Test-Time Scaling](https://aclanthology.org/2026.acl-long.1544/)
 (ACL 2026).
 
+[Watch the video overview](https://mohsenhariri.github.io/assets/videos/ranking-reasoning/ranking-reasoning.mp4).
+
 If you use these ranking APIs, please cite this work:
 
 ```bibtex
