@@ -6,6 +6,8 @@ each column is one sampled trial. A one-dimensional input is treated as a
 single question. The geometric and spectrum APIs are intentionally omitted
 from this reference.
 
+https://github.com/user-attachments/assets/7cb72b44-7e24-40f5-b198-4c102fe2d184
+
 We introduced `Bayes@N` and the `scorio.eval` interface in
 [Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation](https://openreview.net/forum?id=PTXi3Ef4sT)
 (ICLR 2026). Its API table covers `bayes`, `bayes_ci`, `avg_ci`,
