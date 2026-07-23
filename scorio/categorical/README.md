@@ -165,14 +165,14 @@ from scorio.categorical.evaluate import evaluate_schema, evaluate_all
 
 # evaluate_schema: run a single schema over a directory of .jsonl files
 results = evaluate_schema(
-    signals="data/signals/",                    # directory of .jsonl files
+    signals="data/signals/",  # directory of .jsonl files
     schema_id="Confident & Correct",
 )
 # {"model-alpha": (0.5813, 0.0213)}
 
 # evaluate_all: run every schema over a single .jsonl file
 all_results = evaluate_all(
-    signals="data/signals/model-alpha.jsonl",         # single .jsonl file
+    signals="data/signals/model-alpha.jsonl",  # single .jsonl file
 )
 # {
 #   "Confident & Correct":               {"model-alpha": (0.5813, 0.0213)},

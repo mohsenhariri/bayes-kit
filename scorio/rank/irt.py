@@ -1240,7 +1240,7 @@ def _estimate_2pl_abilities(
     log_a_init = np.zeros(M)  # Start with discrimination = 1
     params_init = np.concatenate([theta_init, beta_init, log_a_init])
 
-    bounds = [(None, None)] * (L + M) + [
+    bounds: list[tuple[float | None, float | None]] = [(None, None)] * (L + M) + [
         (-_LOG_DISCRIMINATION_BOUND, _LOG_DISCRIMINATION_BOUND)
     ] * M
     result = _optimize_nonconvex_irt(
@@ -1324,7 +1324,7 @@ def _estimate_2pl_abilities_map(
     log_a_init = np.zeros(M)  # Start with discrimination = 1
     params_init = np.concatenate([theta_init, beta_init, log_a_init])
 
-    bounds = [(None, None)] * (L + M) + [
+    bounds: list[tuple[float | None, float | None]] = [(None, None)] * (L + M) + [
         (-_LOG_DISCRIMINATION_BOUND, _LOG_DISCRIMINATION_BOUND)
     ] * M
     result = _optimize_nonconvex_irt(
@@ -1829,7 +1829,7 @@ def _estimate_3pl_abilities(
     else:
         params_init = np.concatenate([theta_init, beta_init, log_a_init])
 
-    bounds = [(None, None)] * (L + M) + [
+    bounds: list[tuple[float | None, float | None]] = [(None, None)] * (L + M) + [
         (-_LOG_DISCRIMINATION_BOUND, _LOG_DISCRIMINATION_BOUND)
     ] * M
     if fix_guessing is None:
@@ -1957,7 +1957,7 @@ def _estimate_3pl_abilities_map(
     else:
         params_init = np.concatenate([theta_init, beta_init, log_a_init])
 
-    bounds = [(None, None)] * (L + M) + [
+    bounds: list[tuple[float | None, float | None]] = [(None, None)] * (L + M) + [
         (-_LOG_DISCRIMINATION_BOUND, _LOG_DISCRIMINATION_BOUND)
     ] * M
     if fix_guessing is None:

@@ -285,8 +285,8 @@ def average_event_exchangeable_scores(
             )
             compatible: list[int] = []
             candidate_source_rows = [*source_rows, next_source]
-            for candidate_target in np.flatnonzero(~used_target):
-                candidate_target = int(candidate_target)
+            for raw_candidate_target in np.flatnonzero(~used_target):
+                candidate_target = int(raw_candidate_target)
                 if row_signatures[next_source] != row_signatures[candidate_target]:
                     continue
                 if projection_matches(
