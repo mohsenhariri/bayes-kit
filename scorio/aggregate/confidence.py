@@ -73,9 +73,6 @@ __all__ = [
 _REDUCERS = ("mean", "min", "max")
 
 
-# --------------------------------------------------------------------------- #
-# input coercion
-# --------------------------------------------------------------------------- #
 def _as_logprobs(logprobs: Any) -> np.ndarray:
     """Coerce chosen-token log-probabilities to a finite 1-D ``(T,)`` array."""
     lp = np.asarray(logprobs, dtype=float).reshape(-1)
@@ -131,44 +128,48 @@ def _reduce(x: np.ndarray, how: str) -> float:
     raise ValueError(f"aggregate must be one of {_REDUCERS}; got {how!r}.")
 
 
-# --------------------------------------------------------------------------- #
-# per-token statistic builders (vectorized when rectangular, else per row)
-# --------------------------------------------------------------------------- #
-def _normalized(row: np.ndarray) -> np.ndarray:
-    """Renormalize top-k log-probs into a probability vector over that support."""
-    m = float(np.max(row))
-    p = np.exp(row - m)
-    s = float(np.sum(p))
-    return p / s
+def _normalized_logprobs(row: np.ndarray) -> np.ndarray:
+    """Normalize finite log-probabilities without taking ``log(exp(x))``.
+
+    Keeping the normalized values in log space prevents a finite, very unlikely
+    top-k entry (for example ``-1000``) from becoming ``log(0)`` after its
+    probability underflows to zero.
+    """
+    maximum = float(np.max(row))
+    shifted = row - maximum
+    return shifted - math.log(float(np.sum(np.exp(shifted))))
 
 
 def _per_token_entropy(mat: np.ndarray | None, rows: list[np.ndarray]) -> np.ndarray:
     """Per-token Shannon entropy of the renormalized top-k distribution (nats)."""
     if mat is not None:
-        p = np.exp(mat - mat.max(axis=1, keepdims=True))
-        p /= p.sum(axis=1, keepdims=True)
-        return -np.sum(p * np.log(p), axis=1)
+        shifted = mat - mat.max(axis=1, keepdims=True)
+        log_p = shifted - np.log(np.exp(shifted).sum(axis=1, keepdims=True))
+        p = np.exp(log_p)
+        return -np.sum(p * log_p, axis=1)
     out = np.empty(len(rows))
     for i, r in enumerate(rows):
-        p = _normalized(r)
-        out[i] = -float(np.sum(p * np.log(p)))
+        log_p = _normalized_logprobs(r)
+        out[i] = -float(np.sum(np.exp(log_p) * log_p))
     return out
 
 
 def _per_token_varentropy(mat: np.ndarray | None, rows: list[np.ndarray]) -> np.ndarray:
     r"""Per-token varentropy :math:`\sum_j p_j(\log p_j)^2 - H^2` of the top-k."""
     if mat is not None:
-        p = np.exp(mat - mat.max(axis=1, keepdims=True))
-        p /= p.sum(axis=1, keepdims=True)
-        lp = np.log(p)
-        h = -np.sum(p * lp, axis=1)
-        return np.sum(p * lp * lp, axis=1) - h * h
+        shifted = mat - mat.max(axis=1, keepdims=True)
+        log_p = shifted - np.log(np.exp(shifted).sum(axis=1, keepdims=True))
+        p = np.exp(log_p)
+        surprisal = -log_p
+        entropy = np.sum(p * surprisal, axis=1, keepdims=True)
+        return np.sum(p * (surprisal - entropy) ** 2, axis=1)
     out = np.empty(len(rows))
     for i, r in enumerate(rows):
-        p = _normalized(r)
-        lp = np.log(p)
-        h = -float(np.sum(p * lp))
-        out[i] = float(np.sum(p * lp * lp)) - h * h
+        log_p = _normalized_logprobs(r)
+        p = np.exp(log_p)
+        surprisal = -log_p
+        entropy = float(np.sum(p * surprisal))
+        out[i] = float(np.sum(p * (surprisal - entropy) ** 2))
     return out
 
 
@@ -181,14 +182,14 @@ def _per_token_self_certainty(
     uniform reference over the :math:`k` observed candidates.
     """
     if mat is not None:
-        p = np.exp(mat - mat.max(axis=1, keepdims=True))
-        p /= p.sum(axis=1, keepdims=True)
+        shifted = mat - mat.max(axis=1, keepdims=True)
+        log_p = shifted - np.log(np.exp(shifted).sum(axis=1, keepdims=True))
         k = mat.shape[1]
-        return -math.log(k) - np.mean(np.log(p), axis=1)
+        return -math.log(k) - np.mean(log_p, axis=1)
     out = np.empty(len(rows))
     for i, r in enumerate(rows):
-        p = _normalized(r)
-        out[i] = -math.log(len(p)) - float(np.mean(np.log(p)))
+        log_p = _normalized_logprobs(r)
+        out[i] = -math.log(len(log_p)) - float(np.mean(log_p))
     return out
 
 
@@ -239,9 +240,6 @@ def _per_token_margin(
     return np.array([one(r) for r in rows])
 
 
-# --------------------------------------------------------------------------- #
-# sequence-likelihood confidences (chosen-token log-probabilities)
-# --------------------------------------------------------------------------- #
 def mean_logprob(logprobs: Any) -> float:
     r"""
     Mean chosen-token log-probability (length-normalized sequence log-likelihood).
@@ -415,9 +413,6 @@ def picsar(
     return r_ll + float(np.sum(answer))
 
 
-# --------------------------------------------------------------------------- #
-# self-certainty and entropy (top-k distribution)
-# --------------------------------------------------------------------------- #
 def self_certainty(topk_logprobs: Any, *, aggregate: str = "mean") -> float:
     r"""
     Self-certainty: average KL divergence from uniform to the next-token law.
@@ -563,9 +558,6 @@ def varentropy(topk_logprobs: Any, *, aggregate: str = "mean") -> float:
     return _reduce(_per_token_varentropy(mat, rows), aggregate)
 
 
-# --------------------------------------------------------------------------- #
-# margin / max-probability confidences (raw top-k)
-# --------------------------------------------------------------------------- #
 def max_softmax_probability(topk_logprobs: Any, *, aggregate: str = "mean") -> float:
     r"""
     Maximum softmax probability (MSP), averaged over the trace.
@@ -652,9 +644,6 @@ def logprob_margin(
     return _reduce(_per_token_margin(mat, rows, use_prob), aggregate)
 
 
-# --------------------------------------------------------------------------- #
-# DeepConf confidence (raw top-k confidence, with window/tail reductions)
-# --------------------------------------------------------------------------- #
 def token_confidence(topk_logprobs: Any) -> np.ndarray:
     r"""
     DeepConf per-token confidence :math:`C_i = -\tfrac1k \sum_j \log P_i(j)`.

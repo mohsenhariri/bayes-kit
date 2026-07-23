@@ -26,6 +26,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
+
 from ._base import _default_m, _is_valid, _normalize, _pack, _valid_indices
 
 __all__ = [
@@ -259,8 +261,11 @@ def majority_of_the_bests(
     """
     Z, S, single = _normalize(answers, scores, require_scores=True)
     assert S is not None
-    if m is not None and int(m) < 1:
-        raise ValueError(f"m must be a positive integer or None; got {m}.")
+    if m is not None:
+        if isinstance(m, bool) or not isinstance(m, (int, np.integer)):
+            raise ValueError(f"m must be a positive integer or None; got {m!r}.")
+        if int(m) < 1:
+            raise ValueError(f"m must be a positive integer or None; got {m!r}.")
     selected: list[Any] = []
     indices: list[int] = []
     sel_scores: list[float] = []
