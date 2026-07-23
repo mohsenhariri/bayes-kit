@@ -60,6 +60,49 @@ def test_prior_constructor_validation_errors(ctor, kwargs, match: str) -> None:
         ctor(**kwargs)
 
 
+@pytest.mark.parametrize(
+    ("ctor", "kwargs"),
+    [
+        (rank.GaussianPrior, {"mean": np.nan}),
+        (rank.GaussianPrior, {"var": np.inf}),
+        (rank.LaplacePrior, {"loc": np.nan}),
+        (rank.LaplacePrior, {"scale": np.inf}),
+        (rank.CauchyPrior, {"loc": np.inf}),
+        (rank.CauchyPrior, {"scale": np.nan}),
+        (
+            rank.EmpiricalPrior,
+            {"R0": np.zeros((2, 2), dtype=int), "var": np.inf},
+        ),
+        (
+            rank.EmpiricalPrior,
+            {"R0": np.zeros((2, 2), dtype=int), "eps": np.nan},
+        ),
+    ],
+)
+def test_builtin_priors_reject_nonfinite_scalar_parameters(ctor, kwargs) -> None:
+    with pytest.raises(ValueError, match="must be finite"):
+        ctor(**kwargs)
+
+
+@pytest.mark.parametrize("eps", [0.0, -0.1, 0.5, 1.0])
+def test_empirical_prior_rejects_invalid_eps(eps: float) -> None:
+    with pytest.raises(ValueError, match="strictly between 0 and 0.5"):
+        rank.EmpiricalPrior(np.zeros((2, 2), dtype=int), eps=eps)
+
+
+@pytest.mark.parametrize(
+    ("R0", "match"),
+    [
+        (np.empty((2, 0), dtype=int), "non-empty"),
+        (np.array([[0.0, np.nan], [1.0, 0.0]]), "NaN or Inf"),
+        (np.array([[0, 2], [1, 0]]), "only binary values"),
+    ],
+)
+def test_empirical_prior_rejects_invalid_outcomes(R0: np.ndarray, match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        rank.EmpiricalPrior(R0)
+
+
 def test_empirical_prior_rejects_invalid_R0_shape() -> None:
     with pytest.raises(ValueError, match=r"R0 must be 2D \(L, M\) or 3D \(L, M, D\)"):
         rank.EmpiricalPrior(np.zeros((2, 3, 4, 5), dtype=int))

@@ -87,3 +87,37 @@ def test_bayesian_methods_validation_errors(ordered_binary_small_R: np.ndarray) 
 
     with pytest.raises(ValueError, match="prior_var must be > 0 and finite"):
         rank.bayesian_mcmc(ordered_binary_small_R, prior_var=0.0)
+
+
+def test_thompson_equal_posterior_subgroup_ties_exactly() -> None:
+    R = np.array(
+        [
+            [[1, 1, 1, 0]],
+            [[1, 0, 1, 1]],
+            [[0, 0, 0, 0]],
+        ]
+    )
+    ranking, scores = rank.thompson(R, n_samples=1200, seed=31, return_scores=True)
+
+    assert ranking[0] == ranking[1]
+    assert scores[0] == scores[1]
+
+
+def test_bayesian_mcmc_identical_response_subgroup_ties_exactly() -> None:
+    R = np.array(
+        [
+            [[1, 1, 0, 1]],
+            [[1, 1, 0, 1]],
+            [[0, 0, 0, 0]],
+        ]
+    )
+    ranking, scores = rank.bayesian_mcmc(
+        R,
+        n_samples=900,
+        burnin=200,
+        seed=37,
+        return_scores=True,
+    )
+
+    assert ranking[0] == ranking[1]
+    assert scores[0] == scores[1]

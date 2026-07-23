@@ -135,11 +135,9 @@ def test_eval_ranking_wrappers_are_model_permutation_equivariant(
 def test_bayes_validation_errors(top_p_subset: np.ndarray) -> None:
     L, M, _ = top_p_subset.shape
 
-    with pytest.raises(ValueError, match="quantile must be in \\[0, 1\\]"):
-        eval_ranking.bayes(top_p_subset, quantile=-0.1)
-
-    with pytest.raises(ValueError, match="quantile must be in \\[0, 1\\]"):
-        eval_ranking.bayes(top_p_subset, quantile=1.1)
+    for bad_quantile in (-0.1, 0.0, 1.0, 1.1, np.nan):
+        with pytest.raises(ValueError, match=r"quantile must be in \(0, 1\)"):
+            eval_ranking.bayes(top_p_subset, quantile=bad_quantile)
 
     with pytest.raises(ValueError, match="Shared R0 must have shape"):
         eval_ranking.bayes(top_p_subset, R0=np.zeros((M - 1, 3), dtype=int))
@@ -149,6 +147,23 @@ def test_bayes_validation_errors(top_p_subset: np.ndarray) -> None:
 
     with pytest.raises(ValueError, match="R0 must be shape"):
         eval_ranking.bayes(top_p_subset, R0=np.zeros((3,), dtype=int))
+
+    with pytest.raises(ValueError, match="real, finite integer-valued outcomes"):
+        eval_ranking.bayes(top_p_subset, R0=np.full((M, 2), 0.5))
+
+    with pytest.raises(ValueError, match="real, finite integer-valued outcomes"):
+        eval_ranking.bayes(top_p_subset, R0=np.full((M, 2), np.nan))
+
+    with pytest.raises(ValueError, match="real, finite integer-valued outcomes"):
+        eval_ranking.bayes(top_p_subset, R0=np.ones((M, 2), dtype=complex))
+
+
+def test_bayes_default_binary_weights_reward_success() -> None:
+    R = np.array([[[1, 1]], [[0, 0]]], dtype=int)
+    ranking, scores = eval_ranking.bayes(R, return_scores=True)
+
+    assert scores[0] > scores[1]
+    assert ranking[0] < ranking[1]
 
 
 @pytest.mark.parametrize(
@@ -192,6 +207,27 @@ def test_g_pass_tau_edge_equivalences(top_p_subset: np.ndarray) -> None:
     )
     _, scores_hat = eval_ranking.pass_hat_k(top_p_subset, k=3, return_scores=True)
     np.testing.assert_allclose(scores_tau1, scores_hat)
+
+
+def test_pass_family_rankings_remain_finite_for_large_n_and_k() -> None:
+    N = 2000
+    k = 1000
+    R = np.zeros((2, 1, N), dtype=int)
+    R[0] = 1
+
+    calls = [
+        lambda: eval_ranking.pass_at_k(R, k=k, return_scores=True),
+        lambda: eval_ranking.pass_hat_k(R, k=k, return_scores=True),
+        lambda: eval_ranking.g_pass_at_k_tau(R, k=k, tau=0.5, return_scores=True),
+        lambda: eval_ranking.mg_pass_at_k(R, k=k, return_scores=True),
+    ]
+
+    for call in calls:
+        ranking, scores = call()
+        assert np.all(np.isfinite(ranking))
+        assert np.all(np.isfinite(scores))
+        np.testing.assert_allclose(scores, [1.0, 0.0])
+        np.testing.assert_array_equal(ranking, [1, 2])
 
 
 @pytest.mark.parametrize(

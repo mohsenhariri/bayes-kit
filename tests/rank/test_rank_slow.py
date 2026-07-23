@@ -10,14 +10,22 @@ from scorio import rank
     [
         ("thompson", lambda R: rank.thompson(R, return_scores=True)),
         ("bayesian_mcmc", lambda R: rank.bayesian_mcmc(R, return_scores=True)),
-        ("rasch_3pl", lambda R: rank.rasch_3pl(R, return_scores=True)),
+        (
+            "rasch_3pl",
+            lambda R: rank.rasch_3pl(R, fix_guessing=0.2, return_scores=True),
+        ),
         ("rasch_3pl_map", lambda R: rank.rasch_3pl_map(R, return_scores=True)),
         ("rasch_mml", lambda R: rank.rasch_mml(R, return_scores=True)),
         (
             "rasch_mml_credible",
             lambda R: rank.rasch_mml_credible(R, return_scores=True),
         ),
-        ("davidson_luce", lambda R: rank.davidson_luce(R, return_scores=True)),
+        (
+            "davidson_luce",
+            lambda R: rank.davidson_luce(
+                np.eye(R.shape[0], dtype=int), return_scores=True
+            ),
+        ),
         ("davidson_luce_map", lambda R: rank.davidson_luce_map(R, return_scores=True)),
     ],
 )

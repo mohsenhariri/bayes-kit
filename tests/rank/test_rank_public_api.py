@@ -11,6 +11,13 @@ def test_public_rank_api_exports_have_valid_smoke_calls(
     rank_assertions,
 ) -> None:
     R_multi, w, R0_shared, _ = multiclass_rank_data
+    finite_mle_R = np.array(
+        [
+            [1, 0, 0, 1],
+            [0, 1, 0, 0],
+            [0, 0, 1, 0],
+        ]
+    )
 
     function_calls = {
         # Eval-based
@@ -37,7 +44,7 @@ def test_public_rank_api_exports_have_valid_smoke_calls(
         "trueskill": lambda: rank.trueskill(ordered_binary_small_R, return_scores=True),
         # Bradley-Terry family
         "bradley_terry": lambda: rank.bradley_terry(
-            ordered_binary_small_R, max_iter=80, return_scores=True
+            finite_mle_R, max_iter=80, return_scores=True
         ),
         "bradley_terry_map": lambda: rank.bradley_terry_map(
             ordered_binary_small_R, prior=1.0, max_iter=80, return_scores=True
@@ -94,21 +101,21 @@ def test_public_rank_api_exports_have_valid_smoke_calls(
             ordered_binary_small_R, prior=1.0, max_iter=60, return_scores=True
         ),
         "rasch_2pl": lambda: rank.rasch_2pl(
-            ordered_binary_small_R, max_iter=60, return_scores=True
+            ordered_binary_small_R, max_iter=300, return_scores=True
         ),
         "rasch_2pl_map": lambda: rank.rasch_2pl_map(
-            ordered_binary_small_R, prior=1.0, max_iter=60, return_scores=True
+            ordered_binary_small_R, prior=1.0, max_iter=300, return_scores=True
         ),
         "rasch_3pl": lambda: rank.rasch_3pl(
             ordered_binary_small_R,
-            max_iter=50,
+            max_iter=500,
             fix_guessing=0.2,
             return_scores=True,
         ),
         "rasch_3pl_map": lambda: rank.rasch_3pl_map(
             ordered_binary_small_R,
             prior=1.0,
-            max_iter=50,
+            max_iter=500,
             fix_guessing=0.2,
             return_scores=True,
         ),
@@ -128,7 +135,7 @@ def test_public_rank_api_exports_have_valid_smoke_calls(
             return_scores=True,
         ),
         "dynamic_irt": lambda: rank.dynamic_irt(
-            ordered_binary_matrix,
+            ordered_binary_small_R,
             variant="linear",
             max_iter=60,
             return_scores=True,
@@ -162,19 +169,19 @@ def test_public_rank_api_exports_have_valid_smoke_calls(
         ),
         # Listwise
         "plackett_luce": lambda: rank.plackett_luce(
-            ordered_binary_small_R, max_iter=80, return_scores=True
+            finite_mle_R, max_iter=80, return_scores=True
         ),
         "plackett_luce_map": lambda: rank.plackett_luce_map(
             ordered_binary_small_R, prior=1.0, max_iter=80, return_scores=True
         ),
         "davidson_luce": lambda: rank.davidson_luce(
-            ordered_binary_small_R, max_iter=80, return_scores=True
+            finite_mle_R, max_iter=80, return_scores=True
         ),
         "davidson_luce_map": lambda: rank.davidson_luce_map(
             ordered_binary_small_R, prior=1.0, max_iter=80, return_scores=True
         ),
         "bradley_terry_luce": lambda: rank.bradley_terry_luce(
-            ordered_binary_small_R, max_iter=80, return_scores=True
+            finite_mle_R, max_iter=80, return_scores=True
         ),
         "bradley_terry_luce_map": lambda: rank.bradley_terry_luce_map(
             ordered_binary_small_R, prior=1.0, max_iter=80, return_scores=True

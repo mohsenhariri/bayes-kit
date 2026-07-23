@@ -1,7 +1,12 @@
+import importlib
+
 import numpy as np
 import pytest
+from scipy.optimize import OptimizeResult
 
 from scorio import rank
+
+voting_module = importlib.import_module("scorio.rank.voting")
 
 
 @pytest.mark.parametrize(
@@ -57,6 +62,105 @@ def test_voting_option_branches(
     rank_assertions.assert_ranking_and_scores(out_minimax)
     rank_assertions.assert_ranking_and_scores(out_ranked_pairs)
     rank_assertions.assert_ranking_and_scores(out_kemeny)
+
+
+def test_nanson_eliminates_candidates_at_the_round_mean() -> None:
+    # Five strict ballots represented as Borda grades (3 is best, 0 is worst).
+    grades = np.array(
+        [
+            [3, 2, 0, 2, 1],
+            [0, 1, 3, 0, 0],
+            [2, 0, 2, 1, 3],
+            [1, 3, 1, 3, 2],
+        ],
+        dtype=int,
+    )
+    R = (np.arange(3)[None, None, :] < grades[:, :, None]).astype(int)
+
+    ranking, scores = rank.nanson(R, return_scores=True)
+
+    # Round 1 eliminates model 1. In round 2, scores are [4, 5, 6] for
+    # models [0, 2, 3], so original Nanson eliminates models 0 and 2 because
+    # both are at or below the mean of 5.
+    np.testing.assert_array_equal(scores, np.array([1.0, 0.0, 1.0, 2.0]))
+    np.testing.assert_array_equal(ranking, np.array([2, 4, 2, 1]))
+
+
+def test_kemeny_rejects_unproven_initial_incumbent(
+    ordered_binary_small_R: np.ndarray,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def limited_milp(*args, **kwargs) -> OptimizeResult:
+        return OptimizeResult(
+            success=False,
+            status=1,
+            message="Time limit reached",
+            x=np.zeros_like(args[0]),
+            fun=0.0,
+        )
+
+    monkeypatch.setattr(voting_module.optimize, "milp", limited_milp)
+
+    with pytest.raises(RuntimeError, match="did not prove an optimal solution"):
+        voting_module.kemeny_young(ordered_binary_small_R)
+
+
+def test_kemeny_rejects_unproven_tie_aware_subproblem(
+    ordered_binary_small_R: np.ndarray,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_milp = voting_module.optimize.milp
+    call_count = 0
+
+    def limited_after_initial(*args, **kwargs) -> OptimizeResult:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return original_milp(*args, **kwargs)
+        return OptimizeResult(
+            success=False,
+            status=1,
+            message="Time limit reached",
+            x=np.zeros_like(args[0]),
+            fun=0.0,
+        )
+
+    monkeypatch.setattr(voting_module.optimize, "milp", limited_after_initial)
+
+    with pytest.raises(RuntimeError, match="did not prove an optimal subproblem"):
+        voting_module.kemeny_young(ordered_binary_small_R, tie_aware=True)
+
+
+def test_kemeny_accepts_proven_infeasible_reverse_subproblem(
+    ordered_binary_small_R: np.ndarray,
+    monkeypatch: pytest.MonkeyPatch,
+    rank_assertions,
+) -> None:
+    original_milp = voting_module.optimize.milp
+    call_count = 0
+
+    def one_infeasible_reverse(*args, **kwargs) -> OptimizeResult:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 2:
+            return OptimizeResult(
+                success=False,
+                status=2,
+                message="The problem is infeasible",
+                x=None,
+                fun=None,
+            )
+        return original_milp(*args, **kwargs)
+
+    monkeypatch.setattr(voting_module.optimize, "milp", one_infeasible_reverse)
+
+    out = voting_module.kemeny_young(
+        ordered_binary_small_R,
+        tie_aware=True,
+        return_scores=True,
+    )
+    rank_assertions.assert_ranking_and_scores(out)
+    assert call_count > 2
 
 
 def test_voting_validation_errors(ordered_binary_small_R: np.ndarray) -> None:

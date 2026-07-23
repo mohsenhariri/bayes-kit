@@ -363,6 +363,23 @@ def test_pass_point_metrics_match_closed_form_references(
     )
 
 
+def test_pass_point_metrics_remain_finite_for_large_n_and_k() -> None:
+    N = 2000
+    k = 1000
+    R = np.zeros((2, N), dtype=int)
+    R[0] = 1
+
+    scores = [
+        scorio_eval.pass_at_k(R, k),
+        scorio_eval.pass_hat_k(R, k),
+        scorio_eval.g_pass_at_k_tau(R, k, tau=0.5),
+        scorio_eval.mg_pass_at_k(R, k),
+    ]
+
+    assert np.all(np.isfinite(scores))
+    np.testing.assert_allclose(scores, 0.5)
+
+
 def test_pass_family_monotonicity_and_bounds(binary_ref: np.ndarray) -> None:
     N = binary_ref.shape[1]
     k_values = list(range(1, min(N, 8) + 1))

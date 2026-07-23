@@ -416,11 +416,30 @@ class TestAdaptiveWorkflowIntegration:
 
 
 def test_sinf_public_api_exports() -> None:
-    expected = {
+    # The original fixed-look API must remain exported for backward compatibility
+    # (the JSS manuscript and the Julia/JS ports depend on these names).
+    legacy = {
         "ranking_confidence",
         "ci_from_mu_sigma",
         "should_stop",
         "should_stop_top1",
         "suggest_next_allocation",
     }
-    assert set(sinf.__all__) == expected
+    assert legacy <= set(sinf.__all__)
+    # The anytime-valid layer is exported alongside it.
+    for name in (
+        "confseq_mean",
+        "score_confseq",
+        "precision_stop",
+        "compare_paired",
+        "decide_better",
+        "pairwise_confidence",
+        "should_stop_top1_av",
+        "should_stop_full_ranking",
+        "suggest_next_allocation_stratified",
+        "select_best_fixed_budget",
+        "should_stop_sampling",
+        "adaptive_consistency_stop",
+    ):
+        assert name in sinf.__all__, name
+        assert hasattr(sinf, name), name
