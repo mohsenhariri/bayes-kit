@@ -9,7 +9,7 @@ We introduce the `scorio.rank` APIs in
 [Ranking Reasoning LLMs under Test-Time Scaling](https://aclanthology.org/2026.acl-long.1544/)
 (ACL 2026).
 
-[Watch the video overview](https://mohsenhariri.github.io/assets/videos/ranking-reasoning/ranking-reasoning.mp4).
+https://github.com/user-attachments/assets/b5bc4ca1-a62b-412f-b6ec-ac7eb58481c4
 
 If you use these ranking APIs, please cite this work:
 
