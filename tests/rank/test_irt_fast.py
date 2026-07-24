@@ -390,7 +390,7 @@ def test_exact_exchangeability_detects_joint_and_cyclic_automorphisms() -> None:
     np.testing.assert_allclose(cyclic_scores, 3.0)
 
 
-def test_nonconvex_irt_rejects_ambiguous_or_saturated_joint_fits() -> None:
+def test_nonconvex_irt_rejects_ambiguous_and_quasi_separated_joint_fits() -> None:
     ambiguous = np.array(
         [
             [1, 1, 0, 0, 1, 0],
@@ -402,16 +402,16 @@ def test_nonconvex_irt_rejects_ambiguous_or_saturated_joint_fits() -> None:
     with pytest.raises(ValueError, match="multiple equally good nonconvex"):
         rank.rasch_2pl(ambiguous, max_iter=500)
 
-    saturated = np.array(
+    quasi_separated = np.array(
         [
-            [1, 0, 0, 1, 0],
-            [0, 1, 0, 0, 1],
-            [1, 1, 0, 0, 0],
-            [0, 0, 1, 0, 1],
+            [1, 0, 1, 1],
+            [0, 1, 1, 1],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1],
         ]
     )
-    with pytest.raises(ValueError, match="stable interior joint estimate"):
-        rank.rasch_3pl(saturated, fix_guessing=0.2, max_iter=500)
+    with pytest.raises(ValueError, match="no finite joint location estimate"):
+        rank.rasch_3pl(quasi_separated, fix_guessing=0.2, max_iter=500)
 
 
 def test_2pl_respects_item_order_on_asymmetric_profile() -> None:
