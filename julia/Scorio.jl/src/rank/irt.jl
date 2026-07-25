@@ -1,6 +1,11 @@
 """Item Response Theory (IRT) ranking methods."""
 
 using LinearAlgebra
+using HiGHS
+using JuMP
+
+const _LOG_DISCRIMINATION_BOUND = 8.0
+const _MAX_STABLE_IRT_LOCATION = 50.0
 
 function _to_binomial_counts(R)
     Rv = validate_input(R)
@@ -34,6 +39,311 @@ function _coerce_ability_prior(prior)
     error("prior must be a Prior object or float, got $(typeof(prior))")
 end
 
+_one_pl_equivalence_statistics(k_correct) =
+    reshape(vec(sum(k_correct; dims=2)), :, 1)
+
+_average_item_exchangeable_scores(scores, k_correct) =
+    average_event_exchangeable_scores(scores, k_correct)
+
+function _require_finite_person_mle(k_correct, n_trials::Int, name::AbstractString)
+    totals = vec(sum(k_correct; dims=2))
+    maximum_total = Float64(size(k_correct, 2) * n_trials)
+    if any(total -> total == 0.0 || total == maximum_total, totals)
+        error(
+            "$name has no finite ability MLE for an all-correct or all-wrong model row; use the corresponding MAP or MML estimator.",
+        )
+    end
+    return nothing
+end
+
+function _require_finite_item_estimates(k_correct, n_trials::Int, name::AbstractString)
+    totals = vec(sum(k_correct; dims=1))
+    maximum_total = Float64(size(k_correct, 1) * n_trials)
+    if any(total -> total == 0.0 || total == maximum_total, totals)
+        error(
+            "$name has no finite item-parameter estimate for an all-correct or all-wrong question; remove that non-informative question or use rasch_mml, which handles boundary items explicitly.",
+        )
+    end
+    return nothing
+end
+
+function _require_no_fixed_effect_separation(
+    k_correct,
+    n_trials::Int,
+    name::AbstractString,
+)
+    n_models, n_items = size(k_correct)
+    model = Model(HiGHS.Optimizer)
+    set_silent(model)
+    @variable(model, -1.0 <= direction[1:(n_models + n_items)] <= 1.0)
+
+    objective_coefficients = zeros(Float64, n_models + n_items)
+    for model_index in 1:n_models, item_index in 1:n_items
+        contrast = direction[model_index] - direction[n_models + item_index]
+        count = k_correct[model_index, item_index]
+        if count == n_trials
+            @constraint(model, contrast >= 0.0)
+            objective_coefficients[model_index] -= 1.0
+            objective_coefficients[n_models + item_index] += 1.0
+        elseif count == 0.0
+            @constraint(model, contrast <= 0.0)
+            objective_coefficients[model_index] += 1.0
+            objective_coefficients[n_models + item_index] -= 1.0
+        else
+            @constraint(model, contrast == 0.0)
+        end
+    end
+    @constraint(model, sum(direction[(n_models + 1):(n_models + n_items)]) == 0.0)
+    @objective(
+        model,
+        Min,
+        sum(objective_coefficients[index] * direction[index] for index in eachindex(direction)),
+    )
+    optimize!(model)
+    if termination_status(model) != JuMP.MOI.OPTIMAL || !has_values(model)
+        error("$name separation diagnostic failed: $(termination_status(model))")
+    end
+    if -objective_value(model) > 1e-8
+        error(
+            "$name has no finite joint location estimate because the binary response pattern is completely or quasi-separated; use a MAP or MML estimator with proper regularization.",
+        )
+    end
+    return nothing
+end
+
+function _require_stable_irt_location(theta, beta, log_a, model_name::AbstractString)
+    location = vcat(Float64.(theta), Float64.(beta))
+    at_bound = any(abs(value) >= _LOG_DISCRIMINATION_BOUND - 1e-6 for value in log_a)
+    if !all(isfinite, location) || maximum(abs.(location)) > _MAX_STABLE_IRT_LOCATION || at_bound
+        error(
+            "$model_name did not have a stable interior joint estimate; ability/difficulty parameters saturated or an item discrimination reached the numerical search boundary. Use Rasch MML or an estimator with proper priors on every nonidentified parameter.",
+        )
+    end
+    return nothing
+end
+
+_irt_sigmoid(value::Real) = value >= 0.0 ?
+                            1.0 / (1.0 + exp(-Float64(value))) :
+                            exp(Float64(value)) / (1.0 + exp(Float64(value)))
+_irt_softplus(value::Real) = max(Float64(value), 0.0) + log1p(exp(-abs(Float64(value))))
+
+function _prior_gradient(prior::Prior, theta)
+    values = Float64.(theta)
+    if typeof(prior) === GaussianPrior
+        return (values .- prior.mean) ./ prior.var
+    elseif typeof(prior) === LaplacePrior
+        return sign.(values .- prior.loc) ./ prior.scale
+    elseif typeof(prior) === CauchyPrior
+        z = (values .- prior.loc) ./ prior.scale
+        return 2.0 .* z ./ (prior.scale .* (1.0 .+ z .^ 2))
+    elseif typeof(prior) === UniformPrior
+        return zeros(Float64, length(values))
+    elseif typeof(prior) === EmpiricalPrior
+        return (values .- prior.prior_mean) ./ prior.var
+    end
+
+    gradient = similar(values)
+    for index in eachindex(values)
+        step = sqrt(eps(Float64)) * max(1.0, abs(values[index]))
+        upper = copy(values)
+        lower = copy(values)
+        upper[index] += step
+        lower[index] -= step
+        gradient[index] = (penalty(prior, upper) - penalty(prior, lower)) / (2.0 * step)
+    end
+    return gradient
+end
+
+function _minimize_irt_analytic(
+    objective_and_gradient,
+    params_init,
+    max_iter::Int,
+    n_models::Int,
+    n_items::Int,
+    model_name::AbstractString,
+)
+    initial = Float64.(params_init)
+    dimension = length(initial)
+    optimizer = LBFGSB.L_BFGS_B(dimension, 30)
+    bounds = zeros(Float64, 3, dimension)
+    discrimination_range = (n_models + n_items + 1):(n_models + 2 * n_items)
+    for index in discrimination_range
+        bounds[1, index] = 2.0
+        bounds[2, index] = -_LOG_DISCRIMINATION_BOUND
+        bounds[3, index] = _LOG_DISCRIMINATION_BOUND
+    end
+
+    objective(candidate) = first(objective_and_gradient(candidate))
+    function gradient!(destination, candidate)
+        destination .= last(objective_and_gradient(candidate))
+        return nothing
+    end
+
+    _, solution = optimizer(
+        objective,
+        gradient!,
+        initial,
+        bounds;
+        m=30,
+        factr=1e-14 / eps(Float64),
+        pgtol=1e-9,
+        iprint=-1,
+        maxfun=15000,
+        maxiter=max_iter,
+    )
+    task = rstrip(String(optimizer.task))
+    startswith(task, "CONVERGENCE") ||
+        error("$model_name optimization failed: iteration limit reached")
+
+    objective_value, gradient = objective_and_gradient(solution)
+    if !isfinite(objective_value) || !all(isfinite, gradient)
+        error("$model_name optimization failed: non-finite objective")
+    end
+    projected_gradient = Float64.(copy(gradient))
+    for index in discrimination_range
+        if solution[index] <= -_LOG_DISCRIMINATION_BOUND + 1e-8 &&
+           projected_gradient[index] > 0.0
+            projected_gradient[index] = 0.0
+        elseif solution[index] >= _LOG_DISCRIMINATION_BOUND - 1e-8 &&
+               projected_gradient[index] < 0.0
+            projected_gradient[index] = 0.0
+        end
+    end
+    gradient_norm = maximum(abs.(projected_gradient))
+    if !isfinite(gradient_norm) || gradient_norm > 5e-4
+        error(
+            "$model_name optimization stopped before reaching a stationary solution (projected gradient $(round(gradient_norm; sigdigits=3))).",
+        )
+    end
+    return solution
+end
+
+function _optimize_nonconvex_irt(
+    objective,
+    params_init,
+    max_iter::Int,
+    n_models::Int,
+    n_items::Int,
+    k_correct,
+    model_name::AbstractString;
+    exchangeable::Bool=true,
+    objective_and_gradient=nothing,
+)
+    discrimination_range = (n_models + n_items + 1):(n_models + 2 * n_items)
+
+    function components(candidate)
+        theta = copy(candidate[1:n_models])
+        beta = copy(candidate[(n_models + 1):(n_models + n_items)])
+        beta .-= sum(beta) / n_items
+        log_a = copy(candidate[discrimination_range])
+        return theta, beta, log_a
+    end
+
+    run(start) = isnothing(objective_and_gradient) ?
+                 _minimize_or_error(objective, start, max_iter, model_name) :
+                 _minimize_irt_analytic(
+        objective_and_gradient,
+        start,
+        max_iter,
+        n_models,
+        n_items,
+        model_name,
+    )
+
+    base = run(params_init)
+    base_theta, base_beta, base_log_a = components(base)
+    _require_stable_irt_location(base_theta, base_beta, base_log_a, model_name)
+
+    adjusted_theta = exchangeable ?
+                     _average_item_exchangeable_scores(base_theta, k_correct) :
+                     base_theta
+    orbit_probe = collect(0.0:(n_models - 1.0))
+    has_nontrivial_automorphism = exchangeable &&
+                                 _average_item_exchangeable_scores(
+        orbit_probe,
+        k_correct,
+    ) != orbit_probe
+    suspicious = maximum(abs.(base_log_a)) > 4.0 ||
+                 maximum(abs.(vcat(base_theta, base_beta))) > 10.0 ||
+                 maximum(abs.(adjusted_theta .- base_theta)) > 1e-4 ||
+                 has_nontrivial_automorphism
+    suspicious || return base
+
+    centered_counts = Float64.(k_correct) .-
+                      (sum(Float64.(k_correct); dims=1) ./ n_models)
+    decomposition = eigen(Symmetric(centered_counts * transpose(centered_counts)))
+    largest = decomposition.values[end]
+    directions = Vector{Vector{Float64}}()
+    if largest > eps(Float64)
+        keep = decomposition.values .>= largest - 1e-10 * max(1.0, largest)
+        eigenspace = decomposition.vectors[:, keep]
+        projector = eigenspace * transpose(eigenspace)
+        for column in axes(projector, 2)
+            direction = copy(projector[:, column])
+            direction_norm = norm(direction)
+            direction_norm <= 1e-10 && continue
+            direction ./= direction_norm
+            if any(
+                norm(direction .- prior_direction) <= 1e-10 ||
+                norm(direction .+ prior_direction) <= 1e-10 for
+                prior_direction in directions
+            )
+                continue
+            end
+            push!(directions, direction)
+        end
+    end
+
+    candidates = Vector{Vector{Float64}}([base])
+    for direction in directions, sign in (-1.0, 1.0)
+        start = Float64.(copy(params_init))
+        start[1:n_models] .+= sign .* direction
+        try
+            candidate = run(start)
+            theta, beta, log_a = components(candidate)
+            _require_stable_irt_location(theta, beta, log_a, model_name)
+            push!(candidates, candidate)
+        catch exception
+            exception isa InterruptException && rethrow()
+        end
+    end
+
+    values = objective.(candidates)
+    best_value = minimum(values)
+    objective_tolerance = 1e-7 * max(1.0, abs(best_value))
+    near_best = [
+        candidates[index] for index in eachindex(candidates) if
+        values[index] <= best_value + objective_tolerance
+    ]
+
+    candidate_rankings = Set{Any}()
+    for candidate in near_best
+        theta, _, _ = components(candidate)
+        if exchangeable
+            theta = _average_item_exchangeable_scores(theta, k_correct)
+        end
+        push!(candidate_rankings, Tuple(rank_scores(theta)["competition"]))
+    end
+    if length(candidate_rankings) > 1
+        error(
+            "$model_name has multiple equally good nonconvex solutions that imply different rankings; the ranking is not identified. Use a Rasch or MML estimator, or report a sensitivity analysis.",
+        )
+    end
+
+    best_candidate = near_best[1]
+    best_key = nothing
+    for candidate in near_best
+        theta, beta, log_a = components(candidate)
+        signature = Tuple(round.(vcat(sort(theta), sort(beta), sort(log_a)); digits=10))
+        key = (norm(candidate), signature)
+        if isnothing(best_key) || isless(key, best_key)
+            best_key = key
+            best_candidate = candidate
+        end
+    end
+    return best_candidate
+end
+
 function _validate_nonnegative_float(name::AbstractString, value)
     fvalue = Float64(value)
     if !isfinite(fvalue) || fvalue < 0.0
@@ -64,6 +374,9 @@ end
 function _estimate_rasch_abilities(k_correct, n_trials::Int; max_iter::Int=500)
     L, M = size(k_correct)
     n_trials_f = Float64(n_trials)
+    _require_finite_person_mle(k_correct, n_trials, "Rasch")
+    _require_finite_item_estimates(k_correct, n_trials, "Rasch")
+    _require_no_fixed_effect_separation(k_correct, n_trials, "Rasch")
 
     function negative_log_likelihood(params::Vector{Float64})
         theta = @view params[1:L]
@@ -85,7 +398,12 @@ function _estimate_rasch_abilities(k_correct, n_trials::Int; max_iter::Int=500)
     beta_init = -log.(question_difficulty ./ (1.0 .- question_difficulty))
     params_init = vcat(theta_init, beta_init)
 
-    x = _minimize_objective(negative_log_likelihood, params_init; max_iter=max_iter)
+    x = _minimize_or_error(
+        negative_log_likelihood,
+        params_init,
+        max_iter,
+        "rasch",
+    )
 
     theta = copy(@view x[1:L])
     beta = copy(@view x[(L + 1):(L + M)])
@@ -94,8 +412,12 @@ function _estimate_rasch_abilities(k_correct, n_trials::Int; max_iter::Int=500)
 end
 
 function _estimate_rasch_abilities_map(k_correct, n_trials::Int, prior::Prior; max_iter::Int=500)
+    if prior isa UniformPrior
+        return _estimate_rasch_abilities(k_correct, n_trials; max_iter=max_iter)
+    end
     L, M = size(k_correct)
     n_trials_f = Float64(n_trials)
+    _require_finite_item_estimates(k_correct, n_trials, "Rasch MAP")
 
     function negative_log_posterior(params::Vector{Float64})
         theta = @view params[1:L]
@@ -119,7 +441,12 @@ function _estimate_rasch_abilities_map(k_correct, n_trials::Int, prior::Prior; m
     beta_init = -log.(question_difficulty ./ (1.0 .- question_difficulty))
     params_init = vcat(theta_init, beta_init)
 
-    x = _minimize_objective(negative_log_posterior, params_init; max_iter=max_iter)
+    x = _minimize_or_error(
+        negative_log_posterior,
+        params_init,
+        max_iter,
+        "rasch_map",
+    )
 
     theta = copy(@view x[1:L])
     beta = copy(@view x[(L + 1):(L + M)])
@@ -133,26 +460,38 @@ function _estimate_2pl_abilities(
     max_iter::Int=500,
     reg_discrimination::Float64=0.01,
 )
+    reg_discrimination > 0.0 ||
+        error("reg_discrimination must be positive for an identified 2PL joint fit.")
     L, M = size(k_correct)
     n_trials_f = Float64(n_trials)
+    _require_finite_person_mle(k_correct, n_trials, "2PL")
+    _require_finite_item_estimates(k_correct, n_trials, "2PL")
+    _require_no_fixed_effect_separation(k_correct, n_trials, "2PL")
 
-    function negative_log_likelihood(params::Vector{Float64})
+    function objective_and_gradient(params::Vector{Float64})
         theta = @view params[1:L]
         beta_raw = @view params[(L + 1):(L + M)]
         log_a = @view params[(L + M + 1):(L + 2 * M)]
 
         beta_mean = sum(beta_raw) / Float64(length(beta_raw))
         beta = beta_raw .- beta_mean
-        a = exp.(clamp.(log_a, -3.0, 3.0))
+        a = exp.(log_a)
 
         diff = theta .- transpose(beta)
         logit = diff .* transpose(a)
-        prob = clamp.(sigmoid(logit), 1e-10, 1.0 - 1e-10)
+        prob = _irt_sigmoid.(logit)
 
-        nll = -sum(k_correct .* log.(prob) .+ (n_trials_f .- k_correct) .* log.(1.0 .- prob))
+        nll = sum(n_trials_f .* _irt_softplus.(logit) .- k_correct .* logit)
         nll += reg_discrimination * sum(log_a .^ 2)
-        return Float64(nll)
+        residual = n_trials_f .* prob .- k_correct
+        grad_theta = vec(sum(residual .* transpose(a); dims=2))
+        grad_beta = -a .* vec(sum(residual; dims=1))
+        grad_beta .-= sum(grad_beta) / M
+        grad_log_a = vec(sum(residual .* logit; dims=1))
+        grad_log_a .+= 2.0 .* reg_discrimination .* log_a
+        return Float64(nll), vcat(grad_theta, grad_beta, grad_log_a)
     end
+    negative_log_likelihood(params::Vector{Float64}) = first(objective_and_gradient(params))
 
     p_lm = clamp.((k_correct .+ 0.5) ./ (n_trials_f + 1.0), 1e-6, 1.0 - 1e-6)
     model_scores = vec(sum(p_lm; dims=2)) ./ Float64(M)
@@ -163,12 +502,23 @@ function _estimate_2pl_abilities(
     log_a_init = zeros(Float64, M)
     params_init = vcat(theta_init, beta_init, log_a_init)
 
-    x = _minimize_objective(negative_log_likelihood, params_init; max_iter=max_iter)
+    x = _optimize_nonconvex_irt(
+        negative_log_likelihood,
+        params_init,
+        max_iter,
+        L,
+        M,
+        k_correct,
+        "rasch_2pl",
+        objective_and_gradient=objective_and_gradient,
+    )
 
     theta = copy(@view x[1:L])
     beta = copy(@view x[(L + 1):(L + M)])
     beta .-= (sum(beta) / Float64(length(beta)))
-    a = exp.(clamp.(copy(@view x[(L + M + 1):(L + 2 * M)]), -3.0, 3.0))
+    log_a = copy(@view x[(L + M + 1):(L + 2 * M)])
+    _require_stable_irt_location(theta, beta, log_a, "rasch_2pl")
+    a = exp.(clamp.(log_a, -_LOG_DISCRIMINATION_BOUND, _LOG_DISCRIMINATION_BOUND))
     return theta, beta, a
 end
 
@@ -179,27 +529,44 @@ function _estimate_2pl_abilities_map(
     max_iter::Int=500,
     reg_discrimination::Float64=0.01,
 )
+    if prior isa UniformPrior
+        return _estimate_2pl_abilities(
+            k_correct,
+            n_trials;
+            max_iter=max_iter,
+            reg_discrimination=reg_discrimination,
+        )
+    end
     L, M = size(k_correct)
     n_trials_f = Float64(n_trials)
+    _require_finite_item_estimates(k_correct, n_trials, "2PL MAP")
 
-    function negative_log_posterior(params::Vector{Float64})
+    function objective_and_gradient(params::Vector{Float64})
         theta = @view params[1:L]
         beta_raw = @view params[(L + 1):(L + M)]
         log_a = @view params[(L + M + 1):(L + 2 * M)]
 
         beta_mean = sum(beta_raw) / Float64(length(beta_raw))
         beta = beta_raw .- beta_mean
-        a = exp.(clamp.(log_a, -3.0, 3.0))
+        a = exp.(log_a)
 
         diff = theta .- transpose(beta)
         logit = diff .* transpose(a)
-        prob = clamp.(sigmoid(logit), 1e-10, 1.0 - 1e-10)
+        prob = _irt_sigmoid.(logit)
 
-        nll = -sum(k_correct .* log.(prob) .+ (n_trials_f .- k_correct) .* log.(1.0 .- prob))
+        nll = sum(n_trials_f .* _irt_softplus.(logit) .- k_correct .* logit)
         nll += reg_discrimination * sum(log_a .^ 2)
         nll += penalty(prior, theta)
-        return Float64(nll)
+        residual = n_trials_f .* prob .- k_correct
+        grad_theta = vec(sum(residual .* transpose(a); dims=2))
+        grad_theta .+= _prior_gradient(prior, theta)
+        grad_beta = -a .* vec(sum(residual; dims=1))
+        grad_beta .-= sum(grad_beta) / M
+        grad_log_a = vec(sum(residual .* logit; dims=1))
+        grad_log_a .+= 2.0 .* reg_discrimination .* log_a
+        return Float64(nll), vcat(grad_theta, grad_beta, grad_log_a)
     end
+    negative_log_posterior(params::Vector{Float64}) = first(objective_and_gradient(params))
 
     p_lm = clamp.((k_correct .+ 0.5) ./ (n_trials_f + 1.0), 1e-6, 1.0 - 1e-6)
     model_scores = vec(sum(p_lm; dims=2)) ./ Float64(M)
@@ -210,12 +577,24 @@ function _estimate_2pl_abilities_map(
     log_a_init = zeros(Float64, M)
     params_init = vcat(theta_init, beta_init, log_a_init)
 
-    x = _minimize_objective(negative_log_posterior, params_init; max_iter=max_iter)
+    x = _optimize_nonconvex_irt(
+        negative_log_posterior,
+        params_init,
+        max_iter,
+        L,
+        M,
+        k_correct,
+        "rasch_2pl_map";
+        exchangeable=_prior_is_exchangeable(prior),
+        objective_and_gradient=objective_and_gradient,
+    )
 
     theta = copy(@view x[1:L])
     beta = copy(@view x[(L + 1):(L + M)])
     beta .-= (sum(beta) / Float64(length(beta)))
-    a = exp.(clamp.(copy(@view x[(L + M + 1):(L + 2 * M)]), -3.0, 3.0))
+    log_a = copy(@view x[(L + M + 1):(L + 2 * M)])
+    _require_stable_irt_location(theta, beta, log_a, "rasch_2pl_map")
+    a = exp.(clamp.(log_a, -_LOG_DISCRIMINATION_BOUND, _LOG_DISCRIMINATION_BOUND))
     return theta, beta, a
 end
 
@@ -228,41 +607,75 @@ function _estimate_3pl_abilities(
     reg_guessing::Float64=0.1,
     guessing_upper::Float64=0.5,
 )
+    reg_discrimination > 0.0 ||
+        error("reg_discrimination must be positive for an identified 3PL joint fit.")
+    (!isnothing(fix_guessing) || reg_guessing > 0.0) ||
+        error("reg_guessing must be positive when 3PL guessing is estimated.")
     L, M = size(k_correct)
     n_trials_f = Float64(n_trials)
+    _require_finite_person_mle(k_correct, n_trials, "3PL")
+    _require_finite_item_estimates(k_correct, n_trials, "3PL")
+    _require_no_fixed_effect_separation(k_correct, n_trials, "3PL")
 
-    function negative_log_likelihood(params::Vector{Float64})
+    function objective_and_gradient(params::Vector{Float64})
         theta = @view params[1:L]
         beta_raw = @view params[(L + 1):(L + M)]
         log_a = @view params[(L + M + 1):(L + 2 * M)]
 
         local c::Vector{Float64}
+        local unit_c::Vector{Float64}
         if isnothing(fix_guessing)
             logit_c = @view params[(L + 2 * M + 1):(L + 3 * M)]
-            c = guessing_upper .* sigmoid(logit_c)
+            unit_c = _irt_sigmoid.(logit_c)
+            c = guessing_upper .* unit_c
         else
+            unit_c = Float64[]
             c = fill(Float64(fix_guessing), M)
         end
 
         beta_mean = sum(beta_raw) / Float64(length(beta_raw))
         beta = beta_raw .- beta_mean
-        a = exp.(clamp.(log_a, -3.0, 3.0))
+        a = exp.(log_a)
 
         diff = theta .- transpose(beta)
         logit = diff .* transpose(a)
-        base_prob = sigmoid(logit)
+        base_prob = _irt_sigmoid.(logit)
         c_row = reshape(c, 1, :)
         prob = c_row .+ (1.0 .- c_row) .* base_prob
-        prob = clamp.(prob, 1e-10, 1.0 - 1e-10)
 
-        nll = -sum(k_correct .* log.(prob) .+ (n_trials_f .- k_correct) .* log.(1.0 .- prob))
+        nll = 0.0
+        for index in eachindex(prob)
+            correct = k_correct[index]
+            incorrect = n_trials_f - correct
+            correct > 0.0 && (nll -= correct * log(prob[index]))
+            incorrect > 0.0 && (nll -= incorrect * log1p(-prob[index]))
+        end
         nll += reg_discrimination * sum(log_a .^ 2)
         if isnothing(fix_guessing)
             logit_c = @view params[(L + 2 * M + 1):(L + 3 * M)]
             nll += reg_guessing * sum(logit_c .^ 2)
         end
-        return Float64(nll)
+
+        residual = n_trials_f .* prob .- k_correct
+        safe_prob = max.(prob, floatmin(Float64))
+        grad_logit = residual .* base_prob ./ safe_prob
+        grad_theta = vec(sum(grad_logit .* transpose(a); dims=2))
+        grad_beta = -a .* vec(sum(grad_logit; dims=1))
+        grad_beta .-= sum(grad_beta) / M
+        grad_log_a = vec(sum(grad_logit .* logit; dims=1))
+        grad_log_a .+= 2.0 .* reg_discrimination .* log_a
+        gradient = vcat(grad_theta, grad_beta, grad_log_a)
+        if isnothing(fix_guessing)
+            logit_c = @view params[(L + 2 * M + 1):(L + 3 * M)]
+            grad_c = vec(sum(residual ./ (safe_prob .* (1.0 .- c_row)); dims=1))
+            dc_d_logit = guessing_upper .* unit_c .* (1.0 .- unit_c)
+            grad_guessing = grad_c .* dc_d_logit
+            grad_guessing .+= 2.0 .* reg_guessing .* logit_c
+            gradient = vcat(gradient, grad_guessing)
+        end
+        return Float64(nll), gradient
     end
+    negative_log_likelihood(params::Vector{Float64}) = first(objective_and_gradient(params))
 
     p_lm = clamp.((k_correct .+ 0.5) ./ (n_trials_f + 1.0), 1e-6, 1.0 - 1e-6)
     model_scores = vec(sum(p_lm; dims=2)) ./ Float64(M)
@@ -279,16 +692,29 @@ function _estimate_3pl_abilities(
         vcat(theta_init, beta_init, log_a_init)
     end
 
-    x = _minimize_objective(negative_log_likelihood, params_init; max_iter=max_iter)
+    x = _optimize_nonconvex_irt(
+        negative_log_likelihood,
+        params_init,
+        max_iter,
+        L,
+        M,
+        k_correct,
+        "rasch_3pl",
+        objective_and_gradient=objective_and_gradient,
+    )
 
     theta = copy(@view x[1:L])
     beta = copy(@view x[(L + 1):(L + M)])
     beta .-= (sum(beta) / Float64(length(beta)))
     log_a = copy(@view x[(L + M + 1):(L + 2 * M)])
-    a = exp.(clamp.(log_a, -3.0, 3.0))
+    _require_stable_irt_location(theta, beta, log_a, "rasch_3pl")
+    a = exp.(clamp.(log_a, -_LOG_DISCRIMINATION_BOUND, _LOG_DISCRIMINATION_BOUND))
 
     c = if isnothing(fix_guessing)
         logit_c = @view x[(L + 2 * M + 1):(L + 3 * M)]
+        maximum(abs.(logit_c)) <= 30.0 || error(
+            "rasch_3pl guessing parameters saturated at a boundary; use stronger guessing regularization or fix_guessing.",
+        )
         guessing_upper .* sigmoid(logit_c)
     else
         fill(Float64(fix_guessing), M)
@@ -307,34 +733,54 @@ function _estimate_3pl_abilities_map(
     reg_guessing::Float64=0.1,
     guessing_upper::Float64=0.5,
 )
+    if prior isa UniformPrior
+        return _estimate_3pl_abilities(
+            k_correct,
+            n_trials;
+            max_iter=max_iter,
+            fix_guessing=fix_guessing,
+            reg_discrimination=reg_discrimination,
+            reg_guessing=reg_guessing,
+            guessing_upper=guessing_upper,
+        )
+    end
     L, M = size(k_correct)
     n_trials_f = Float64(n_trials)
+    _require_finite_item_estimates(k_correct, n_trials, "3PL MAP")
 
-    function negative_log_posterior(params::Vector{Float64})
+    function objective_and_gradient(params::Vector{Float64})
         theta = @view params[1:L]
         beta_raw = @view params[(L + 1):(L + M)]
         log_a = @view params[(L + M + 1):(L + 2 * M)]
 
         local c::Vector{Float64}
+        local unit_c::Vector{Float64}
         if isnothing(fix_guessing)
             logit_c = @view params[(L + 2 * M + 1):(L + 3 * M)]
-            c = guessing_upper .* sigmoid(logit_c)
+            unit_c = _irt_sigmoid.(logit_c)
+            c = guessing_upper .* unit_c
         else
+            unit_c = Float64[]
             c = fill(Float64(fix_guessing), M)
         end
 
         beta_mean = sum(beta_raw) / Float64(length(beta_raw))
         beta = beta_raw .- beta_mean
-        a = exp.(clamp.(log_a, -3.0, 3.0))
+        a = exp.(log_a)
 
         diff = theta .- transpose(beta)
         logit = diff .* transpose(a)
-        base_prob = sigmoid(logit)
+        base_prob = _irt_sigmoid.(logit)
         c_row = reshape(c, 1, :)
         prob = c_row .+ (1.0 .- c_row) .* base_prob
-        prob = clamp.(prob, 1e-10, 1.0 - 1e-10)
 
-        nll = -sum(k_correct .* log.(prob) .+ (n_trials_f .- k_correct) .* log.(1.0 .- prob))
+        nll = 0.0
+        for index in eachindex(prob)
+            correct = k_correct[index]
+            incorrect = n_trials_f - correct
+            correct > 0.0 && (nll -= correct * log(prob[index]))
+            incorrect > 0.0 && (nll -= incorrect * log1p(-prob[index]))
+        end
         nll += penalty(prior, theta)
         nll += reg_discrimination * sum(log_a .^ 2)
         if isnothing(fix_guessing)
@@ -342,8 +788,27 @@ function _estimate_3pl_abilities_map(
             nll += reg_guessing * sum(logit_c .^ 2)
         end
 
-        return Float64(nll)
+        residual = n_trials_f .* prob .- k_correct
+        safe_prob = max.(prob, floatmin(Float64))
+        grad_logit = residual .* base_prob ./ safe_prob
+        grad_theta = vec(sum(grad_logit .* transpose(a); dims=2))
+        grad_theta .+= _prior_gradient(prior, theta)
+        grad_beta = -a .* vec(sum(grad_logit; dims=1))
+        grad_beta .-= sum(grad_beta) / M
+        grad_log_a = vec(sum(grad_logit .* logit; dims=1))
+        grad_log_a .+= 2.0 .* reg_discrimination .* log_a
+        gradient = vcat(grad_theta, grad_beta, grad_log_a)
+        if isnothing(fix_guessing)
+            logit_c = @view params[(L + 2 * M + 1):(L + 3 * M)]
+            grad_c = vec(sum(residual ./ (safe_prob .* (1.0 .- c_row)); dims=1))
+            dc_d_logit = guessing_upper .* unit_c .* (1.0 .- unit_c)
+            grad_guessing = grad_c .* dc_d_logit
+            grad_guessing .+= 2.0 .* reg_guessing .* logit_c
+            gradient = vcat(gradient, grad_guessing)
+        end
+        return Float64(nll), gradient
     end
+    negative_log_posterior(params::Vector{Float64}) = first(objective_and_gradient(params))
 
     p_lm = clamp.((k_correct .+ 0.5) ./ (n_trials_f + 1.0), 1e-6, 1.0 - 1e-6)
     model_scores = vec(sum(p_lm; dims=2)) ./ Float64(M)
@@ -360,16 +825,30 @@ function _estimate_3pl_abilities_map(
         vcat(theta_init, beta_init, log_a_init)
     end
 
-    x = _minimize_objective(negative_log_posterior, params_init; max_iter=max_iter)
+    x = _optimize_nonconvex_irt(
+        negative_log_posterior,
+        params_init,
+        max_iter,
+        L,
+        M,
+        k_correct,
+        "rasch_3pl_map";
+        exchangeable=_prior_is_exchangeable(prior),
+        objective_and_gradient=objective_and_gradient,
+    )
 
     theta = copy(@view x[1:L])
     beta = copy(@view x[(L + 1):(L + M)])
     beta .-= (sum(beta) / Float64(length(beta)))
     log_a = copy(@view x[(L + M + 1):(L + 2 * M)])
-    a = exp.(clamp.(log_a, -3.0, 3.0))
+    _require_stable_irt_location(theta, beta, log_a, "rasch_3pl_map")
+    a = exp.(clamp.(log_a, -_LOG_DISCRIMINATION_BOUND, _LOG_DISCRIMINATION_BOUND))
 
     c = if isnothing(fix_guessing)
         logit_c = @view x[(L + 2 * M + 1):(L + 3 * M)]
+        maximum(abs.(logit_c)) <= 30.0 || error(
+            "rasch_3pl_map guessing parameters saturated at a boundary; use stronger guessing regularization or fix_guessing.",
+        )
         guessing_upper .* sigmoid(logit_c)
     else
         fill(Float64(fix_guessing), M)
@@ -382,7 +861,7 @@ function _validate_time_points(time_points, n_time::Int)
     raw_time = if isnothing(time_points)
         collect(range(0.0, 1.0, length=n_time))
     else
-        if !(time_points isa AbstractVector)
+        if !(time_points isa AbstractVector || time_points isa Tuple)
             error("time_points must be a 1D array with length equal to R.shape[2].")
         end
         raw = Float64.(collect(time_points))
@@ -505,7 +984,12 @@ function _estimate_growth_model_abilities(
         return Float64(nll)
     end
 
-    x = _minimize_objective(negative_log_likelihood, params_init; max_iter=max_iter)
+    x = _minimize_or_error(
+        negative_log_likelihood,
+        params_init,
+        max_iter,
+        "dynamic_irt growth",
+    )
 
     theta0 = copy(@view x[1:L])
     theta1 = copy(@view x[(L + 1):(2 * L)])
@@ -580,7 +1064,12 @@ function _estimate_state_space_abilities(
         return Float64(nll)
     end
 
-    x = _minimize_objective(negative_log_posterior, params_init; max_iter=max_iter)
+    x = _minimize_or_error(
+        negative_log_posterior,
+        params_init,
+        max_iter,
+        "dynamic_irt state_space",
+    )
 
     theta_path = reshape(copy(@view x[1:(L * N)]), L, N)
     beta = copy(@view x[(L * N + 1):(L * N + M)])
@@ -648,6 +1137,34 @@ function _estimate_rasch_mml(
     L, M = size(k_correct)
     n_trials_f = Float64(n_trials)
 
+    item_totals = vec(sum(k_correct; dims=1))
+    all_wrong = item_totals .== 0.0
+    all_correct = item_totals .== Float64(L * n_trials)
+    informative = .!(all_wrong .| all_correct)
+    if !all(informative)
+        beta = Vector{Float64}(undef, M)
+        beta[all_wrong] .= Inf
+        beta[all_correct] .= -Inf
+        if any(informative)
+            abilities, beta_sub, posterior, theta_q = _estimate_rasch_mml(
+                k_correct[:, informative],
+                n_trials;
+                max_iter=max_iter,
+                em_iter=em_iter,
+                n_quadrature=n_quadrature,
+            )
+            beta[informative] .= beta_sub
+            return abilities, beta, posterior, theta_q
+        end
+
+        x_gh, w_gh = _hermgauss(n_quadrature)
+        theta_q = sqrt(2.0) .* x_gh
+        weights = w_gh ./ sqrt(pi)
+        posterior = repeat(reshape(weights, 1, :), L, 1)
+        abilities = posterior * theta_q
+        return abilities, beta, posterior, theta_q
+    end
+
     x_gh, w_gh = _hermgauss(n_quadrature)
     theta_q = sqrt(2.0) .* x_gh
     w_q = w_gh ./ sqrt(pi)
@@ -655,7 +1172,6 @@ function _estimate_rasch_mml(
     p_lm = clamp.((k_correct .+ 0.5) ./ (n_trials_f + 1.0), 1e-6, 1.0 - 1e-6)
     question_difficulty = vec(sum(p_lm; dims=1)) ./ Float64(L)
     beta = -log.((question_difficulty .+ 0.01) ./ (1.0 .- question_difficulty .+ 0.01))
-    beta .-= (sum(beta) / Float64(length(beta)))
 
     Q = n_quadrature
     posterior = zeros(Float64, L, Q)
@@ -711,11 +1227,14 @@ function _estimate_rasch_mml(
                 return Float64(nll)
             end
 
-            xopt = _minimize_objective(item_nll, [beta[m]]; max_iter=max_iter)
+            xopt = _minimize_or_error(
+                item_nll,
+                [beta[m]],
+                max_iter,
+                "rasch_mml item M-step",
+            )
             beta[m] = xopt[1]
         end
-
-        beta .-= (sum(beta) / Float64(length(beta)))
     end
 
     e_step!(posterior, log_lik, beta)
@@ -763,7 +1282,7 @@ function rasch(
     k_correct, n_trials = _to_binomial_counts(R)
 
     theta, beta = _estimate_rasch_abilities(k_correct, n_trials; max_iter=max_iter_i)
-    scores = theta
+    scores = average_equivalent_scores(theta, _one_pl_equivalence_statistics(k_correct))
     ranking = rank_scores(scores)[string(method)]
 
     if return_item_params
@@ -812,6 +1331,12 @@ function rasch_map(
     theta, beta =
         _estimate_rasch_abilities_map(k_correct, n_trials, prior_obj; max_iter=max_iter_i)
     scores = theta
+    if _prior_is_exchangeable(prior_obj)
+        scores = average_equivalent_scores(
+            scores,
+            _one_pl_equivalence_statistics(k_correct),
+        )
+    end
     ranking = rank_scores(scores)[string(method)]
 
     if return_item_params
@@ -847,6 +1372,11 @@ function rasch_2pl(
 )
     max_iter_i = _validate_positive_int("max_iter", max_iter)
     reg_discrimination_f = _validate_nonnegative_float("reg_discrimination", reg_discrimination)
+    if reg_discrimination_f == 0.0
+        error(
+            "reg_discrimination must be positive for 2PL joint estimation; without it, the ability/discrimination scale is not identified.",
+        )
+    end
     k_correct, n_trials = _to_binomial_counts(R)
 
     theta, beta, a = _estimate_2pl_abilities(
@@ -855,7 +1385,7 @@ function rasch_2pl(
         max_iter=max_iter_i,
         reg_discrimination=reg_discrimination_f,
     )
-    scores = theta
+    scores = _average_item_exchangeable_scores(theta, k_correct)
     ranking = rank_scores(scores)[string(method)]
 
     if return_item_params
@@ -907,6 +1437,9 @@ function rasch_2pl_map(
         reg_discrimination=reg_discrimination_f,
     )
     scores = theta
+    if _prior_is_exchangeable(prior_obj)
+        scores = _average_item_exchangeable_scores(scores, k_correct)
+    end
     ranking = rank_scores(scores)[string(method)]
 
     if return_item_params
@@ -977,6 +1510,9 @@ function dynamic_irt(
     Rv = validate_input(R)
     k_correct = Float64.(dropdims(sum(Rv; dims=3); dims=3))
     n_trials = Int(size(Rv, 3))
+    if variant_s != "linear"
+        _require_finite_item_estimates(k_correct, n_trials, "Dynamic IRT")
+    end
     score_target_s = _validate_dynamic_score_target(score_target)
     slope_reg_f = _validate_nonnegative_float("slope_reg", slope_reg)
     state_reg_f = _validate_nonnegative_float("state_reg", state_reg)
@@ -995,7 +1531,10 @@ function dynamic_irt(
             )
         end
         theta, beta_est = _estimate_rasch_abilities(k_correct, n_trials; max_iter=max_iter_i)
-        scores = theta
+        scores = average_equivalent_scores(
+            theta,
+            _one_pl_equivalence_statistics(k_correct),
+        )
         beta = beta_est
     elseif variant_s == "growth"
         if !assume_time_axis
@@ -1003,6 +1542,13 @@ function dynamic_irt(
                 "variant='growth' interprets axis-2 as ordered longitudinal time. Set assume_time_axis=True to proceed.",
             )
         end
+        n_trials >= 2 ||
+            error("Longitudinal dynamic IRT requires at least two time points.")
+        slope_reg_f > 0.0 || error(
+            "slope_reg must be positive for variant='growth' so temporal separation cannot produce an infinite slope estimate.",
+        )
+        _require_finite_person_mle(k_correct, n_trials, "Dynamic growth IRT")
+        _require_no_fixed_effect_separation(k_correct, n_trials, "Dynamic growth IRT")
         raw_time, time_unit = _validate_time_points(time_points, n_trials)
         theta0_est, theta1_est, beta_est = _estimate_growth_model_abilities(
             Rv,
@@ -1010,8 +1556,13 @@ function dynamic_irt(
             max_iter=max_iter_i,
             slope_reg=slope_reg_f,
         )
-        theta0 = theta0_est
-        theta1 = theta1_est
+        correct_by_time = Float64.(dropdims(sum(Rv; dims=2); dims=2))
+        equivalence_statistic = hcat(
+            vec(sum(correct_by_time; dims=2)),
+            correct_by_time * time_unit,
+        )
+        theta0 = average_equivalent_scores(theta0_est, equivalence_statistic)
+        theta1 = average_equivalent_scores(theta1_est, equivalence_statistic)
         beta = beta_est
         theta_path = zeros(Float64, length(theta0), length(time_unit))
         for l in 1:length(theta0), n in 1:length(time_unit)
@@ -1024,6 +1575,11 @@ function dynamic_irt(
                 "variant='state_space' interprets axis-2 as ordered longitudinal time. Set assume_time_axis=True to proceed.",
             )
         end
+        n_trials >= 2 ||
+            error("Longitudinal dynamic IRT requires at least two time points.")
+        state_reg_f > 0.0 || error(
+            "state_reg must be positive for variant='state_space' so each latent trajectory has a proper random-walk penalty.",
+        )
         raw_time, time_unit = _validate_time_points(time_points, n_trials)
         theta_path_est, beta_est = _estimate_state_space_abilities(
             Rv,
@@ -1032,6 +1588,13 @@ function dynamic_irt(
             state_reg=state_reg_f,
         )
         theta_path = theta_path_est
+        equivalence_statistic = Float64.(dropdims(sum(Rv; dims=2); dims=2))
+        for time_index in axes(theta_path, 2)
+            theta_path[:, time_index] = average_equivalent_scores(
+                theta_path[:, time_index],
+                equivalence_statistic,
+            )
+        end
         beta = beta_est
         scores = _score_dynamic_path(theta_path, score_target_s)
     else
@@ -1099,6 +1662,12 @@ function rasch_3pl(
     reg_guessing_f = _validate_nonnegative_float("reg_guessing", reg_guessing)
     guessing_upper_f = _validate_guessing_upper(guessing_upper)
     fix_guessing_v = _validate_fix_guessing(fix_guessing, guessing_upper_f)
+    reg_discrimination_f > 0.0 || error(
+        "reg_discrimination must be positive for 3PL joint estimation; without it, the ability/discrimination scale is not identified.",
+    )
+    (!isnothing(fix_guessing_v) || reg_guessing_f > 0.0) || error(
+        "reg_guessing must be positive when 3PL guessing parameters are estimated, so boundary guessing logits cannot diverge.",
+    )
     k_correct, n_trials = _to_binomial_counts(R)
 
     theta, beta, a, c = _estimate_3pl_abilities(
@@ -1110,7 +1679,7 @@ function rasch_3pl(
         reg_guessing=reg_guessing_f,
         guessing_upper=guessing_upper_f,
     )
-    scores = theta
+    scores = _average_item_exchangeable_scores(theta, k_correct)
     ranking = rank_scores(scores)[string(method)]
 
     if return_item_params
@@ -1159,6 +1728,9 @@ function rasch_3pl_map(
     reg_guessing_f = _validate_nonnegative_float("reg_guessing", reg_guessing)
     guessing_upper_f = _validate_guessing_upper(guessing_upper)
     fix_guessing_v = _validate_fix_guessing(fix_guessing, guessing_upper_f)
+    (!isnothing(fix_guessing_v) || reg_guessing_f > 0.0) || error(
+        "reg_guessing must be positive when 3PL guessing parameters are estimated, so boundary guessing logits cannot diverge.",
+    )
     k_correct, n_trials = _to_binomial_counts(R)
     prior_obj = _coerce_ability_prior(prior)
 
@@ -1173,6 +1745,9 @@ function rasch_3pl_map(
         guessing_upper=guessing_upper_f,
     )
     scores = theta
+    if _prior_is_exchangeable(prior_obj)
+        scores = _average_item_exchangeable_scores(scores, k_correct)
+    end
     ranking = rank_scores(scores)[string(method)]
 
     if return_item_params
@@ -1232,7 +1807,7 @@ function rasch_mml(
         em_iter=em_iter_i,
         n_quadrature=n_quadrature_i,
     )
-    scores = theta
+    scores = average_equivalent_scores(theta, _one_pl_equivalence_statistics(k_correct))
 
     ranking = rank_scores(scores)[string(method)]
     if return_item_params
@@ -1289,6 +1864,10 @@ function rasch_mml_credible(
     )
 
     scores = _posterior_quantile(posterior, theta_q, quantile_f)
+    scores = average_equivalent_scores(
+        scores,
+        _one_pl_equivalence_statistics(k_correct),
+    )
     ranking = rank_scores(scores)[string(method)]
     return return_scores ? (ranking, scores) : ranking
 end
@@ -1420,7 +1999,7 @@ function _estimate_mirt(
         end
 
         x0 = estimate_c ? vcat(vec(a), d, gamma) : vcat(vec(a), d)
-        x = _minimize_objective(mstep, x0; max_iter=max_iter)
+        x = _minimize_or_error(mstep, x0, max_iter, "mirt item M-step")
         a_new = reshape(copy(@view x[1:(M * D)]), M, D)
         d_new = copy(@view x[(M * D + 1):(M * D + M)])
         gamma_new = estimate_c ? copy(@view x[(M * D + M + 1):(M * D + 2 * M)]) : gamma
@@ -1561,6 +2140,7 @@ function mirt(
     end
 
     k_correct, n_trials = _to_binomial_counts(R)
+    _require_finite_item_estimates(k_correct, n_trials, "MIRT")
     M = size(k_correct, 2)
     if n_factors_i > M
         error("n_factors=$n_factors_i cannot exceed number of questions M=$M.")
@@ -1580,6 +2160,18 @@ function mirt(
         guessing_upper=guessing_upper_f,
         tol=tol_f,
     )
+
+    scores = _average_item_exchangeable_scores(scores, k_correct)
+    for factor in axes(theta, 2)
+        theta[:, factor] = _average_item_exchangeable_scores(
+            theta[:, factor],
+            k_correct,
+        )
+        theta_sd[:, factor] = _average_item_exchangeable_scores(
+            theta_sd[:, factor],
+            k_correct,
+        )
+    end
 
     ranking = rank_scores(scores)[string(method)]
     if return_item_params

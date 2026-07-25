@@ -1,5 +1,7 @@
 """Eval-metric-based ranking methods."""
 
+using SpecialFunctions: erfcinv
+
 """
     avg(R; method="competition", return_scores=false)
 
@@ -18,7 +20,7 @@ Higher scores are better; ranking is produced by `rank_scores`.
 - `method`: tie-handling rule for `rank_scores`.
 - `return_scores`: if `true`, return `(ranking, scores)`.
 """
-function avg(R; method="competition", return_scores=false)
+function _rank_avg(R; method="competition", return_scores=false)
     Rv = validate_input(R)
     L = size(Rv, 1)
 
@@ -32,60 +34,13 @@ function avg(R; method="competition", return_scores=false)
     return return_scores ? (ranking, scores) : ranking
 end
 
-# Rational approximation of the inverse standard normal CDF.
+avg(R::AbstractArray{<:Any,3}; method="competition", return_scores=false) =
+    _rank_avg(R; method=method, return_scores=return_scores)
+
 function _norm_ppf(p::Float64)::Float64
-    if p == 0.0
-        return -Inf
-    elseif p == 1.0
-        return Inf
-    end
-
-    # Coefficients from Peter J. Acklam's inverse-normal approximation.
-    a1 = -39.6968302866538
-    a2 = 220.946098424521
-    a3 = -275.928510446969
-    a4 = 138.357751867269
-    a5 = -30.6647980661472
-    a6 = 2.50662827745924
-
-    b1 = -54.4760987982241
-    b2 = 161.585836858041
-    b3 = -155.698979859887
-    b4 = 66.8013118877197
-    b5 = -13.2806815528857
-
-    c1 = -0.00778489400243029
-    c2 = -0.322396458041136
-    c3 = -2.40075827716184
-    c4 = -2.54973253934373
-    c5 = 4.37466414146497
-    c6 = 2.93816398269878
-
-    d1 = 0.00778469570904146
-    d2 = 0.32246712907004
-    d3 = 2.445134137143
-    d4 = 3.75440866190742
-
-    plow = 0.02425
-    phigh = 1.0 - plow
-
-    if p < plow
-        q = sqrt(-2.0 * log(p))
-        num = (((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6)
-        den = ((((d1 * q + d2) * q + d3) * q + d4) * q + 1.0)
-        return num / den
-    elseif p > phigh
-        q = sqrt(-2.0 * log(1.0 - p))
-        num = (((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6)
-        den = ((((d1 * q + d2) * q + d3) * q + d4) * q + 1.0)
-        return -num / den
-    else
-        q = p - 0.5
-        r = q * q
-        num = (((((a1 * r + a2) * r + a3) * r + a4) * r + a5) * r + a6) * q
-        den = (((((b1 * r + b2) * r + b3) * r + b4) * r + b5) * r + 1.0)
-        return num / den
-    end
+    p == 0.0 && return -Inf
+    p == 1.0 && return Inf
+    return -sqrt(2.0) * erfcinv(2.0 * p)
 end
 
 """
@@ -127,8 +82,8 @@ s_l =
 - `quantile`: optional value in `[0, 1]` for quantile-adjusted ranking.
 - `method`, `return_scores`: ranking output controls.
 """
-function bayes(
-    R::AbstractArray{<:Integer, 3},
+function _rank_bayes(
+    R,
     w=nothing;
     R0=nothing,
     quantile=nothing,
@@ -141,8 +96,8 @@ function bayes(
     z = nothing
     if !isnothing(quantile)
         q = Float64(quantile)
-        if !(0.0 <= q <= 1.0)
-            error("quantile must be in [0, 1]; got $quantile")
+        if !isfinite(q) || !(0.0 < q < 1.0)
+            error("quantile must be in (0, 1); got $quantile")
         end
         z = _norm_ppf(q)
     end
@@ -151,7 +106,15 @@ function bayes(
     R0_per_model = nothing
 
     if !isnothing(R0)
-        R0_arr = Int.(Array(R0))
+        raw_R0 = _coerce_rank_array_like(R0)
+        if isnothing(raw_R0)
+            error("R0 must contain real, finite integer-valued outcomes")
+        end
+        if !(eltype(raw_R0) <: Number) || eltype(raw_R0) <: Complex ||
+           any(x -> !isfinite(x) || x != floor(x), raw_R0)
+            error("R0 must contain real, finite integer-valued outcomes")
+        end
+        R0_arr = Int.(raw_R0)
 
         if ndims(R0_arr) == 2
             if size(R0_arr, 1) != M
@@ -187,6 +150,24 @@ function bayes(
     return return_scores ? (ranking, scores) : ranking
 end
 
+function bayes(
+    R::AbstractArray{<:Integer,3},
+    w=nothing;
+    R0=nothing,
+    quantile=nothing,
+    method="competition",
+    return_scores=false,
+)
+    return _rank_bayes(
+        R,
+        w;
+        R0=R0,
+        quantile=quantile,
+        method=method,
+        return_scores=return_scores,
+    )
+end
+
 """
     pass_at_k(R::AbstractArray{<:Integer, 3}, k; method="competition", return_scores=false)
 
@@ -206,8 +187,8 @@ Chen, M., Tworek, J., Jun, H., et al. (2021).
 Evaluating Large Language Models Trained on Code.
 *arXiv:2107.03374*. https://arxiv.org/abs/2107.03374
 """
-function pass_at_k(
-    R::AbstractArray{<:Integer, 3},
+function _rank_pass_at_k(
+    R,
     k;
     method="competition",
     return_scores=false,
@@ -223,6 +204,9 @@ function pass_at_k(
     ranking = rank_scores(scores)[string(method)]
     return return_scores ? (ranking, scores) : ranking
 end
+
+pass_at_k(R::AbstractArray{<:Integer,3}, k; method="competition", return_scores=false) =
+    _rank_pass_at_k(R, k; method=method, return_scores=return_scores)
 
 """
     pass_hat_k(R::AbstractArray{<:Integer, 3}, k; method="competition", return_scores=false)
@@ -242,8 +226,8 @@ Yao, S., Shinn, N., Razavi, P., & Narasimhan, K. (2024).
 tau-bench: A Benchmark for Tool-Agent-User Interaction in Real-World Domains.
 *arXiv:2406.12045*. https://arxiv.org/abs/2406.12045
 """
-function pass_hat_k(
-    R::AbstractArray{<:Integer, 3},
+function _rank_pass_hat_k(
+    R,
     k;
     method="competition",
     return_scores=false,
@@ -259,6 +243,9 @@ function pass_hat_k(
     ranking = rank_scores(scores)[string(method)]
     return return_scores ? (ranking, scores) : ranking
 end
+
+pass_hat_k(R::AbstractArray{<:Integer,3}, k; method="competition", return_scores=false) =
+    _rank_pass_hat_k(R, k; method=method, return_scores=return_scores)
 
 """
     g_pass_at_k_tau(
@@ -291,8 +278,8 @@ Liu, J., Liu, H., Xiao, L., et al. (2024).
 Are Your LLMs Capable of Stable Reasoning?
 *arXiv:2412.13147*. https://arxiv.org/abs/2412.13147
 """
-function g_pass_at_k_tau(
-    R::AbstractArray{<:Integer, 3},
+function _rank_g_pass_at_k_tau(
+    R,
     k,
     tau;
     method="competition",
@@ -308,6 +295,16 @@ function g_pass_at_k_tau(
 
     ranking = rank_scores(scores)[string(method)]
     return return_scores ? (ranking, scores) : ranking
+end
+
+function g_pass_at_k_tau(
+    R::AbstractArray{<:Integer,3},
+    k,
+    tau;
+    method="competition",
+    return_scores=false,
+)
+    return _rank_g_pass_at_k_tau(R, k, tau; method=method, return_scores=return_scores)
 end
 
 """
@@ -334,8 +331,8 @@ Liu, J., Liu, H., Xiao, L., et al. (2024).
 Are Your LLMs Capable of Stable Reasoning?
 *arXiv:2412.13147*. https://arxiv.org/abs/2412.13147
 """
-function mg_pass_at_k(
-    R::AbstractArray{<:Integer, 3},
+function _rank_mg_pass_at_k(
+    R,
     k;
     method="competition",
     return_scores=false,
@@ -351,3 +348,6 @@ function mg_pass_at_k(
     ranking = rank_scores(scores)[string(method)]
     return return_scores ? (ranking, scores) : ranking
 end
+
+mg_pass_at_k(R::AbstractArray{<:Integer,3}, k; method="competition", return_scores=false) =
+    _rank_mg_pass_at_k(R, k; method=method, return_scores=return_scores)

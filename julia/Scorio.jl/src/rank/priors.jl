@@ -10,6 +10,22 @@ latent score vector `theta`.
 """
 abstract type Prior end
 
+function _finite_prior_scalar(value, name::AbstractString)::Float64
+    if value isa Bool || !(value isa Real)
+        throw(ArgumentError("$name must be a finite scalar"))
+    end
+    converted = try
+        Float64(value)
+    catch error_value
+        if error_value isa InexactError || error_value isa OverflowError
+            throw(ArgumentError("$name must be finite"))
+        end
+        rethrow()
+    end
+    isfinite(converted) || throw(ArgumentError("$name must be finite"))
+    return converted
+end
+
 """
     EmpiricalPrior(R0; var=1.0, eps=1e-6)
 
@@ -23,7 +39,7 @@ outcomes.
 - `R0`: baseline outcomes per model. Typically binary outcomes in `{0,1}`.
 - `var::Real=1.0`: variance used in the quadratic penalty; must be positive.
 - `eps::Real=1e-6`: clipping level used before logit transform.
-  No explicit range check is applied; choose `0 < eps < 0.5` in practice.
+  Must satisfy `0 < eps < 0.5`.
 
 # Returns
 - `EmpiricalPrior`: stores `R0`, `var`, `eps`, and centered `prior_mean`.
@@ -63,12 +79,20 @@ struct EmpiricalPrior <: Prior
     prior_mean::Vector{Float64}
 end
 
-function EmpiricalPrior(R0; var::Real=1.0, eps::Real=1e-6)
-    if var <= 0
+function EmpiricalPrior(R0; var=1.0, eps=1e-6)
+    var_f = _finite_prior_scalar(var, "Variance")
+    if var_f <= 0
         error("Variance must be positive")
     end
+    eps_f = _finite_prior_scalar(eps, "eps")
+    if !(0.0 < eps_f < 0.5)
+        error("eps must be strictly between 0 and 0.5")
+    end
 
-    R0_arr = Array(R0)
+    R0_arr = _coerce_rank_array_like(R0)
+    if isnothing(R0_arr)
+        error("R0 must be 2D (L, M) or 3D (L, M, D), got ndim=0")
+    end
 
     if ndims(R0_arr) == 2
         R0_arr = reshape(R0_arr, size(R0_arr, 1), size(R0_arr, 2), 1)
@@ -76,15 +100,31 @@ function EmpiricalPrior(R0; var::Real=1.0, eps::Real=1e-6)
         error("R0 must be 2D (L, M) or 3D (L, M, D), got ndim=$(ndims(R0_arr))")
     end
 
+    any(iszero, size(R0_arr)) && error("R0 must be non-empty in every dimension")
+    if !(eltype(R0_arr) <: Number)
+        error("R0 must be numeric, got dtype $(eltype(R0_arr))")
+    end
+    if eltype(R0_arr) <: Complex
+        error("R0 must contain real-valued outcomes")
+    end
+    any(x -> !isfinite(x), R0_arr) && error("R0 must not contain NaN or Inf values")
+    any(x -> !(x == 0 || x == 1), R0_arr) &&
+        error("R0 must contain only binary values (0 or 1)")
+
+    R0_arr = Int.(R0_arr)
+
     L = size(R0_arr, 1)
     acc = [sum(@view R0_arr[l, :, :]) / length(@view R0_arr[l, :, :]) for l in 1:L]
 
-    acc_clipped = clamp.(Float64.(acc), Float64(eps), 1.0 - Float64(eps))
+    acc_clipped = clamp.(Float64.(acc), eps_f, 1.0 - eps_f)
     prior_mean = log.(acc_clipped ./ (1.0 .- acc_clipped))
     prior_mean .-= (sum(prior_mean) / length(prior_mean))
 
-    return EmpiricalPrior(R0_arr, Float64(var), Float64(eps), prior_mean)
+    return EmpiricalPrior(R0_arr, var_f, eps_f, prior_mean)
 end
+
+EmpiricalPrior(R0, var) = EmpiricalPrior(R0; var=var)
+EmpiricalPrior(R0, var, eps) = EmpiricalPrior(R0; var=var, eps=eps)
 
 """
     GaussianPrior(mean=0.0, var=1.0)
@@ -108,13 +148,18 @@ Gaussian prior on latent parameters with quadratic penalty.
 struct GaussianPrior <: Prior
     mean::Float64
     var::Float64
-    function GaussianPrior(mean::Real=0.0, var::Real=1.0)
-        if var <= 0
+    function GaussianPrior(mean, var)
+        mean_f = _finite_prior_scalar(mean, "Mean")
+        var_f = _finite_prior_scalar(var, "Variance")
+        if var_f <= 0
             error("Variance must be positive")
         end
-        return new(Float64(mean), Float64(var))
+        return new(mean_f, var_f)
     end
 end
+
+GaussianPrior(mean) = GaussianPrior(mean, 1.0)
+GaussianPrior(; mean=0.0, var=1.0) = GaussianPrior(mean, var)
 
 """
     LaplacePrior(loc=0.0, scale=1.0)
@@ -138,13 +183,18 @@ Laplace prior on latent parameters with L1 penalty.
 struct LaplacePrior <: Prior
     loc::Float64
     scale::Float64
-    function LaplacePrior(loc::Real=0.0, scale::Real=1.0)
-        if scale <= 0
+    function LaplacePrior(loc, scale)
+        loc_f = _finite_prior_scalar(loc, "Location")
+        scale_f = _finite_prior_scalar(scale, "Scale")
+        if scale_f <= 0
             error("Scale must be positive")
         end
-        return new(Float64(loc), Float64(scale))
+        return new(loc_f, scale_f)
     end
 end
+
+LaplacePrior(loc) = LaplacePrior(loc, 1.0)
+LaplacePrior(; loc=0.0, scale=1.0) = LaplacePrior(loc, scale)
 
 """
     CauchyPrior(loc=0.0, scale=1.0)
@@ -168,13 +218,18 @@ Let ``z_i = (\\theta_i-\\mathrm{loc})/\\mathrm{scale}``.
 struct CauchyPrior <: Prior
     loc::Float64
     scale::Float64
-    function CauchyPrior(loc::Real=0.0, scale::Real=1.0)
-        if scale <= 0
+    function CauchyPrior(loc, scale)
+        loc_f = _finite_prior_scalar(loc, "Location")
+        scale_f = _finite_prior_scalar(scale, "Scale")
+        if scale_f <= 0
             error("Scale must be positive")
         end
-        return new(Float64(loc), Float64(scale))
+        return new(loc_f, scale_f)
     end
 end
+
+CauchyPrior(loc) = CauchyPrior(loc, 1.0)
+CauchyPrior(; loc=0.0, scale=1.0) = CauchyPrior(loc, scale)
 
 """
     UniformPrior()
@@ -210,11 +265,22 @@ User-defined prior from a callable penalty function.
 struct CustomPrior{F} <: Prior
     penalty_fn::F
     function CustomPrior(penalty_fn)
-        if isempty(methods(penalty_fn))
+        if !applicable(penalty_fn, Float64[])
             error("penalty_fn must be callable")
         end
         return new{typeof(penalty_fn)}(penalty_fn)
     end
+end
+
+function Base.getproperty(prior::Prior, name::Symbol)
+    if name === :penalty
+        return theta -> penalty(prior, theta)
+    end
+    return getfield(prior, name)
+end
+
+function Base.propertynames(prior::Prior, private::Bool=false)
+    return (fieldnames(typeof(prior))..., :penalty)
 end
 
 function penalty(prior::EmpiricalPrior, theta)

@@ -46,73 +46,80 @@ function _coerce_prior(prior)
     return prior
 end
 
-function _finite_diff_gradient(f, x::Vector{Float64})
+_prior_is_exchangeable(prior::Prior) =
+    typeof(prior) in (GaussianPrior, LaplacePrior, CauchyPrior, UniformPrior)
+
+function _finite_diff_gradient(
+    f,
+    x::Vector{Float64},
+    fx::Float64=Float64(f(x)),
+)
+    # scipy.optimize.minimize(..., method="L-BFGS-B", jac=nothing) uses an
+    # absolute forward-difference step of 1e-8.  Use the representable step
+    # after floating-point addition, matching scipy.optimize._numdiff.
     g = zeros(Float64, length(x))
     for k in eachindex(x)
-        h = 1e-6 * (abs(x[k]) + 1.0)
-        xph = copy(x)
-        xmh = copy(x)
-        xph[k] += h
-        xmh[k] -= h
-        fph = f(xph)
-        fmh = f(xmh)
-        if isfinite(fph) && isfinite(fmh)
-            g[k] = (fph - fmh) / (2.0 * h)
-        else
-            g[k] = 0.0
+        stepped = copy(x)
+        stepped[k] += 1e-8
+        step = stepped[k] - x[k]
+        if step == 0.0
+            sign = x[k] >= 0.0 ? 1.0 : -1.0
+            fallback = sqrt(eps(Float64)) * sign * max(1.0, abs(x[k]))
+            stepped[k] = x[k] + fallback
+            step = stepped[k] - x[k]
         end
+        g[k] = (Float64(f(stepped)) - fx) / step
     end
     return g
 end
 
-function _minimize_objective(f, x0; max_iter::Int=500)
+function _minimize_objective(f, x0; max_iter::Int=500, return_status::Bool=false)
     x = Float64.(x0)
-    fx = f(x)
-    best_x = copy(x)
-    best_fx = fx
-
-    for _ in 1:max_iter
-        g = _finite_diff_gradient(f, x)
-        if !all(isfinite, g)
-            break
-        end
-
-        grad_sq_norm = sum(abs2, g)
-        if grad_sq_norm <= 1e-12
-            break
-        end
-
-        alpha = 1.0
-        accepted = false
-        for _ in 1:25
-            x_new = x .- alpha .* g
-            f_new = f(x_new)
-            if isfinite(f_new) && f_new <= fx - 1e-4 * alpha * grad_sq_norm
-                x = x_new
-                fx = f_new
-                accepted = true
-                break
-            end
-            alpha *= 0.5
-        end
-
-        if !accepted
-            x_new = x .- 1e-3 .* g
-            f_new = f(x_new)
-            if !isfinite(f_new)
-                break
-            end
-            x = x_new
-            fx = f_new
-        end
-
-        if fx < best_fx
-            best_fx = fx
-            best_x = copy(x)
-        end
+    fx = Float64(f(x))
+    if !isfinite(fx)
+        return return_status ? (x, false) : x
     end
 
-    return best_x
+    first_evaluation = true
+    function objective_and_gradient(candidate)
+        value = if first_evaluation
+            first_evaluation = false
+            fx
+        else
+            Float64(f(candidate))
+        end
+        gradient = _finite_diff_gradient(f, candidate, value)
+        return value, gradient
+    end
+
+    dimension = length(x)
+    optimizer = LBFGSB.L_BFGS_B(dimension, 10)
+    bounds = zeros(Float64, 3, dimension)
+    # LBFGSB counts function-and-gradient requests, whereas SciPy's maxfun
+    # counts the objective call plus one call per forward-difference column.
+    max_fg_requests = fld(15000, dimension + 1) + 1
+    _, solution = optimizer(
+        objective_and_gradient,
+        x,
+        bounds;
+        m=10,
+        factr=1e7,
+        pgtol=1e-5,
+        iprint=-1,
+        maxfun=max_fg_requests,
+        maxiter=max_iter,
+    )
+
+    task = rstrip(String(optimizer.task))
+    converged = startswith(task, "CONVERGENCE")
+    return return_status ? (solution, converged) : solution
+end
+
+function _minimize_or_error(f, x0, max_iter::Int, model_name::AbstractString)
+    x, converged =
+        _minimize_objective(f, x0; max_iter=max_iter, return_status=true)
+    converged || error("$model_name optimization failed: iteration limit reached")
+    return x
 end
 
 function _estimate_bt_ml(wins; max_iter::Int=500)
@@ -120,6 +127,11 @@ function _estimate_bt_ml(wins; max_iter::Int=500)
 
     if sum(wins) <= 0.0
         return ones(Float64, n)
+    end
+    if !is_strongly_connected(wins .> 0.0)
+        error(
+            "Bradley-Terry has no finite maximum-likelihood estimate because the directed win graph is not strongly connected; use bradley_terry_map for a regularized estimate.",
+        )
     end
 
     function negative_log_likelihood(log_pi)
@@ -145,12 +157,15 @@ function _estimate_bt_ml(wins; max_iter::Int=500)
     total_wins = max.(vec(sum(wins, dims=2)), 1.0)
     log_pi_init = log.(total_wins ./ sum(total_wins))
 
-    x = _minimize_objective(negative_log_likelihood, log_pi_init; max_iter=max_iter)
+    x = _minimize_or_error(negative_log_likelihood, log_pi_init, max_iter, "bradley_terry")
     log_pi = x .- (sum(x) / n)
     return exp.(clamp.(log_pi, -30.0, 30.0))
 end
 
 function _estimate_bt_map(wins, prior::Prior; max_iter::Int=500)
+    if prior isa UniformPrior
+        return _estimate_bt_ml(wins; max_iter=max_iter)
+    end
     n = size(wins, 1)
     no_decisive_outcomes = sum(wins) <= 0.0
 
@@ -182,7 +197,12 @@ function _estimate_bt_map(wins, prior::Prior; max_iter::Int=500)
     total_wins = max.(vec(sum(wins, dims=2)), 1.0)
     log_pi_init = log.(total_wins ./ sum(total_wins))
 
-    x = _minimize_objective(negative_log_posterior, log_pi_init; max_iter=max_iter)
+    x = _minimize_or_error(
+        negative_log_posterior,
+        log_pi_init,
+        max_iter,
+        "bradley_terry_map",
+    )
     log_pi = x .- (sum(x) / n)
     scores = exp.(clamp.(log_pi, -30.0, 30.0))
 
@@ -199,6 +219,12 @@ function _estimate_bt_davidson(wins, ties; max_iter::Int=500)
 
     if sum(wins) <= 0.0
         return ones(Float64, n)
+    end
+    existence_graph = (wins .> 0.0) .| (ties .> 0.0)
+    if !is_strongly_connected(existence_graph)
+        error(
+            "Bradley-Terry-Davidson has no finite maximum-likelihood strength estimate because its win/tie graph is not strongly connected; use bradley_terry_davidson_map with a proper prior.",
+        )
     end
 
     function negative_log_likelihood(params)
@@ -239,12 +265,20 @@ function _estimate_bt_davidson(wins, ties; max_iter::Int=500)
     log_pi_init = log.(total_wins ./ sum(total_wins))
     params_init = vcat(log_pi_init, 0.0)
 
-    x = _minimize_objective(negative_log_likelihood, params_init; max_iter=max_iter)
+    x = _minimize_or_error(
+        negative_log_likelihood,
+        params_init,
+        max_iter,
+        "bradley_terry_davidson",
+    )
     log_pi = x[1:n] .- (sum(x[1:n]) / n)
     return exp.(clamp.(log_pi, -30.0, 30.0))
 end
 
 function _estimate_bt_davidson_map(wins, ties, prior::Prior; max_iter::Int=500)
+    if prior isa UniformPrior
+        return _estimate_bt_davidson(wins, ties; max_iter=max_iter)
+    end
     n = size(wins, 1)
     eps = 1e-10
     no_decisive_outcomes = sum(wins) <= 0.0
@@ -291,7 +325,12 @@ function _estimate_bt_davidson_map(wins, ties, prior::Prior; max_iter::Int=500)
     log_pi_init = log.(total_wins ./ sum(total_wins))
     params_init = vcat(log_pi_init, 0.0)
 
-    x = _minimize_objective(negative_log_posterior, params_init; max_iter=max_iter)
+    x = _minimize_or_error(
+        negative_log_posterior,
+        params_init,
+        max_iter,
+        "bradley_terry_davidson_map",
+    )
     log_pi = x[1:n] .- (sum(x[1:n]) / n)
     scores = exp.(clamp.(log_pi, -30.0, 30.0))
 
@@ -318,6 +357,12 @@ function _estimate_rao_kupper_ml(wins, ties, tie_strength; max_iter::Int=500)
     end
     if sum(wins) <= 0.0
         return ones(Float64, n)
+    end
+    existence_graph = (wins .> 0.0) .| (ties .> 0.0)
+    if !is_strongly_connected(existence_graph)
+        error(
+            "Rao-Kupper has no finite maximum-likelihood strength estimate because its win/tie graph is not strongly connected; use rao_kupper_map with a proper prior.",
+        )
     end
 
     function negative_log_likelihood(log_pi)
@@ -363,12 +408,20 @@ function _estimate_rao_kupper_ml(wins, ties, tie_strength; max_iter::Int=500)
     end
 
     log_pi0 = zeros(Float64, n)
-    x = _minimize_objective(negative_log_likelihood, log_pi0; max_iter=max_iter)
+    x = _minimize_or_error(negative_log_likelihood, log_pi0, max_iter, "rao_kupper")
     log_pi = x .- (sum(x) / n)
     return exp.(clamp.(log_pi, -30.0, 30.0))
 end
 
 function _estimate_rao_kupper_map(wins, ties, tie_strength, prior::Prior; max_iter::Int=500)
+    if prior isa UniformPrior
+        return _estimate_rao_kupper_ml(
+            wins,
+            ties,
+            tie_strength;
+            max_iter=max_iter,
+        )
+    end
     n = size(wins, 1)
     eps = 1e-12
     kappa = _validate_tie_strength(tie_strength)
@@ -431,7 +484,12 @@ function _estimate_rao_kupper_map(wins, ties, tie_strength, prior::Prior; max_it
     end
 
     log_pi0 = zeros(Float64, n)
-    x = _minimize_objective(negative_log_posterior, log_pi0; max_iter=max_iter)
+    x = _minimize_or_error(
+        negative_log_posterior,
+        log_pi0,
+        max_iter,
+        "rao_kupper_map",
+    )
     log_pi = x .- (sum(x) / n)
     scores = exp.(clamp.(log_pi, -30.0, 30.0))
 
@@ -468,6 +526,7 @@ function bradley_terry(R; method="competition", return_scores=false, max_iter=50
     max_iter_i = _validate_max_iter(max_iter)
     wins = build_pairwise_wins(Rv)
     scores = _estimate_bt_ml(wins; max_iter=max_iter_i)
+    scores = average_equivalent_scores(scores, Rv)
     ranking = rank_scores(scores)[string(method)]
     return return_scores ? (ranking, scores) : ranking
 end
@@ -512,6 +571,9 @@ function bradley_terry_map(
     prior_obj = _coerce_prior(prior)
     wins = build_pairwise_wins(Rv)
     scores = _estimate_bt_map(wins, prior_obj; max_iter=max_iter_i)
+    if _prior_is_exchangeable(prior_obj)
+        scores = average_equivalent_scores(scores, Rv)
+    end
     ranking = rank_scores(scores)[string(method)]
     return return_scores ? (ranking, scores) : ranking
 end
@@ -545,6 +607,7 @@ function bradley_terry_davidson(
     max_iter_i = _validate_max_iter(max_iter)
     wins, ties = build_pairwise_counts(Rv)
     scores = _estimate_bt_davidson(wins, ties; max_iter=max_iter_i)
+    scores = average_equivalent_scores(scores, Rv)
     ranking = rank_scores(scores)[string(method)]
     return return_scores ? (ranking, scores) : ranking
 end
@@ -578,6 +641,9 @@ function bradley_terry_davidson_map(
     prior_obj = _coerce_prior(prior)
     wins, ties = build_pairwise_counts(Rv)
     scores = _estimate_bt_davidson_map(wins, ties, prior_obj; max_iter=max_iter_i)
+    if _prior_is_exchangeable(prior_obj)
+        scores = average_equivalent_scores(scores, Rv)
+    end
     ranking = rank_scores(scores)[string(method)]
     return return_scores ? (ranking, scores) : ranking
 end
@@ -623,6 +689,7 @@ function rao_kupper(
     kappa = _validate_tie_strength(tie_strength)
     wins, ties = build_pairwise_counts(Rv)
     scores = _estimate_rao_kupper_ml(wins, ties, kappa; max_iter=max_iter_i)
+    scores = average_equivalent_scores(scores, Rv)
     ranking = rank_scores(scores)[string(method)]
     return return_scores ? (ranking, scores) : ranking
 end
@@ -659,6 +726,9 @@ function rao_kupper_map(
     prior_obj = _coerce_prior(prior)
     wins, ties = build_pairwise_counts(Rv)
     scores = _estimate_rao_kupper_map(wins, ties, kappa, prior_obj; max_iter=max_iter_i)
+    if _prior_is_exchangeable(prior_obj)
+        scores = average_equivalent_scores(scores, Rv)
+    end
     ranking = rank_scores(scores)[string(method)]
     return return_scores ? (ranking, scores) : ranking
 end

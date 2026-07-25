@@ -1,5 +1,7 @@
 """Sequential pairwise rating methods."""
 
+using SpecialFunctions: erfc, erfcx, logerfc
+
 function elo()
     error("elo requires input tensor R")
 end
@@ -80,6 +82,8 @@ function elo(
     for t in 1:N
         for q in 1:M
             outcomes = @view Rv[:, q, t]
+            event_ratings = copy(ratings)
+            rating_delta = zeros(Float64, L)
 
             for i in 1:L
                 for j in (i + 1):L
@@ -104,15 +108,16 @@ function elo(
                         S_i, S_j = r_i > r_j ? (1.0, 0.0) : (0.0, 1.0)
                     end
 
-                    R_i = ratings[i]
-                    R_j = ratings[j]
+                    R_i = event_ratings[i]
+                    R_j = event_ratings[j]
                     E_i = 1.0 / (1.0 + 10.0^((R_j - R_i) / 400.0))
                     E_j = 1.0 - E_i
 
-                    ratings[i] = R_i + Kf * (S_i - E_i)
-                    ratings[j] = R_j + Kf * (S_j - E_j)
+                    rating_delta[i] += Kf * (S_i - E_i)
+                    rating_delta[j] += Kf * (S_j - E_j)
                 end
             end
+            ratings .+= rating_delta
         end
     end
 
@@ -206,60 +211,76 @@ function trueskill(
     sigma = fill(sigma_initial_f, L)
 
     norm_pdf(x::Float64) = exp(-0.5 * x^2) / sqrt(2.0 * π)
-    erf_approx(x::Float64) = begin
-        s = x < 0.0 ? -1.0 : 1.0
-        ax = abs(x)
-        p = 0.3275911
-        a1 = 0.254829592
-        a2 = -0.284496736
-        a3 = 1.421413741
-        a4 = -1.453152027
-        a5 = 1.061405429
-        t = 1.0 / (1.0 + p * ax)
-        poly = ((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t
-        y = 1.0 - poly * exp(-ax^2)
-        s * y
-    end
-    norm_cdf(x::Float64) = 0.5 * (1.0 + erf_approx(x / sqrt(2.0)))
+    norm_cdf(x::Float64) = 0.5 * erfc(-x / sqrt(2.0))
+    log_norm_cdf(x::Float64) = x < 0.0 ?
+        (-log(2.0) + logerfc(-x / sqrt(2.0))) : log(norm_cdf(x))
 
-    function v_win(t::Float64, epsilon::Float64)
+    function win_corrections(t::Float64, epsilon::Float64)
         x = t - epsilon
-        denom = norm_cdf(x)
-        if denom < 1e-12
-            return -x
+        local v::Float64
+        local w::Float64
+        if x < -10.0
+            y = -x
+            inverse_y = 1.0 / y
+            inverse_y2 = inverse_y^2
+            v = y + inverse_y * (
+                1.0 + inverse_y2 * (-2.0 + inverse_y2 * (10.0 + inverse_y2 * -74.0))
+            )
+            w = 1.0 + inverse_y2 * (-1.0 + inverse_y2 * (6.0 + inverse_y2 * -50.0))
+        elseif x < 0.0
+            v = sqrt(2.0 / π) / erfcx(-x / sqrt(2.0))
+            w = v * (v + x)
+        else
+            log_v = -0.5 * x^2 - 0.5 * log(2.0 * π) - log_norm_cdf(x)
+            v = exp(log_v)
+            w = v * (v + x)
         end
-        return norm_pdf(x) / denom
+        return v, clamp(w, 0.0, 1.0)
     end
 
-    w_win(t::Float64, epsilon::Float64) = begin
-        v = v_win(t, epsilon)
-        v * (v + t - epsilon)
-    end
+    function draw_corrections(t::Float64, epsilon::Float64)
+        if epsilon <= sqrt(eps(Float64)) * (1.0 + abs(t))
+            return -t, 1.0
+        end
 
-    function v_draw(t::Float64, epsilon::Float64)
         a = -epsilon - t
         b = epsilon - t
+        if a < -10.0 && b > 10.0
+            return 0.0, 0.0
+        end
+
         cdf_a = norm_cdf(a)
         cdf_b = norm_cdf(b)
         denom = cdf_b - cdf_a
-        if denom < 1e-12
-            return 0.0
-        end
-        return (norm_pdf(a) - norm_pdf(b)) / denom
-    end
+        v = (norm_pdf(a) - norm_pdf(b)) / denom
+        variance = 1.0 + (a * norm_pdf(a) - b * norm_pdf(b)) / denom - v^2
 
-    function w_draw(t::Float64, epsilon::Float64)
-        a = -epsilon - t
-        b = epsilon - t
-        cdf_a = norm_cdf(a)
-        cdf_b = norm_cdf(b)
-        denom = cdf_b - cdf_a
-        if denom < 1e-12
-            return 1.0
+        if !isfinite(v) || !isfinite(variance) || variance < 0.0
+            reflected = b < 0.0
+            lower = reflected ? -b : a
+            upper = reflected ? -a : b
+            lower <= 0.0 && return 0.0, 0.0
+
+            width = upper - lower
+            scaled_width = lower * width
+            if scaled_width > 50.0
+                tail_v, tail_w = win_corrections(-lower, 0.0)
+                v = tail_v
+                variance = 1.0 - tail_w
+            elseif scaled_width < 1e-4
+                mean_offset = width * (0.5 - scaled_width / 12.0)
+                variance = width^2 / 12.0
+                v = lower + mean_offset
+            else
+                denominator = expm1(scaled_width)
+                mean_offset = 1.0 / lower - width / denominator
+                variance = 1.0 / lower^2 -
+                           width^2 * exp(scaled_width) / denominator^2
+                v = lower + mean_offset
+            end
+            reflected && (v = -v)
         end
-        v = v_draw(t, epsilon)
-        term = ((b * norm_pdf(b)) - (a * norm_pdf(a))) / denom
-        return v * v + term
+        return v, clamp(1.0 - variance, 0.0, 1.0)
     end
 
     function update_decisive(
@@ -277,15 +298,13 @@ function trueskill(
         local w::Float64
         if player1_wins
             t_local = (mu1 - mu2) / c_local
-            v = v_win(t_local, epsilon)
-            w = w_win(t_local, epsilon)
+            v, w = win_corrections(t_local, epsilon)
 
             mu1_new = mu1 + (sigma1^2 / c_local) * v
             mu2_new = mu2 - (sigma2^2 / c_local) * v
         else
             t_local = (mu2 - mu1) / c_local
-            v = v_win(t_local, epsilon)
-            w = w_win(t_local, epsilon)
+            v, w = win_corrections(t_local, epsilon)
 
             mu2_new = mu2 + (sigma2^2 / c_local) * v
             mu1_new = mu1 - (sigma1^2 / c_local) * v
@@ -301,8 +320,7 @@ function trueskill(
         c_local = sqrt(2.0 * beta_f^2 + sigma1^2 + sigma2^2)
         epsilon = draw_margin_f / c_local
         t_local = (mu1 - mu2) / c_local
-        v = v_draw(t_local, epsilon)
-        w = w_draw(t_local, epsilon)
+        v, w = draw_corrections(t_local, epsilon)
 
         mu1_new = mu1 + (sigma1^2 / c_local) * v
         mu2_new = mu2 - (sigma2^2 / c_local) * v
@@ -315,6 +333,11 @@ function trueskill(
     for t in 1:N
         for q in 1:M
             outcomes = @view Rv[:, q, t]
+            event_mu = copy(mu)
+            event_sigma = copy(sigma)
+            prior_variance = event_sigma .^ 2
+            precision_increment = zeros(Float64, L)
+            natural_increment = zeros(Float64, L)
 
             for i in 1:L
                 for j in (i + 1):L
@@ -329,20 +352,39 @@ function trueskill(
                             continue
                         end
 
-                        mu[i], sigma[i], mu[j], sigma[j] =
-                            update_draw(mu[i], sigma[i], mu[j], sigma[j])
-                        continue
+                        pair_mu_i, pair_sigma_i, pair_mu_j, pair_sigma_j = update_draw(
+                            event_mu[i],
+                            event_sigma[i],
+                            event_mu[j],
+                            event_sigma[j],
+                        )
+                    else
+                        pair_mu_i, pair_sigma_i, pair_mu_j, pair_sigma_j = update_decisive(
+                            event_mu[i],
+                            event_sigma[i],
+                            event_mu[j],
+                            event_sigma[j],
+                            r_i > r_j,
+                        )
                     end
 
-                    mu[i], sigma[i], mu[j], sigma[j] = update_decisive(
-                        mu[i],
-                        sigma[i],
-                        mu[j],
-                        sigma[j],
-                        r_i > r_j,
+                    for (player, pair_mu, pair_sigma) in (
+                        (i, pair_mu_i, pair_sigma_i),
+                        (j, pair_mu_j, pair_sigma_j),
                     )
+                        pair_variance = pair_sigma^2
+                        precision_increment[player] +=
+                            1.0 / pair_variance - 1.0 / prior_variance[player]
+                        natural_increment[player] += pair_mu / pair_variance -
+                                                     event_mu[player] / prior_variance[player]
+                    end
                 end
             end
+
+            posterior_precision = 1.0 ./ prior_variance .+ precision_increment
+            posterior_natural = event_mu ./ prior_variance .+ natural_increment
+            sigma = sqrt.(1.0 ./ posterior_precision)
+            mu = posterior_natural ./ posterior_precision
         end
 
         sigma .= sqrt.(sigma .^ 2 .+ tau_f^2)
@@ -420,13 +462,13 @@ function glicko(
     end
 
     rd_max_f = Float64(rd_max)
-    if rd_max_f <= 0.0
-        error("rd_max must be > 0")
+    if !isfinite(rd_max_f) || rd_max_f <= 0.0
+        error("rd_max must be > 0 and finite.")
     end
 
     c_f = Float64(c)
-    if c_f < 0.0
-        error("c must be >= 0")
+    if !isfinite(c_f) || c_f < 0.0
+        error("c must be >= 0 and finite.")
     end
 
     tie_mode = string(tie_handling)

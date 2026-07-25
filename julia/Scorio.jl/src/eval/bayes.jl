@@ -79,9 +79,9 @@ mu, sigma = bayes(R, w, R0)
 ```
 """
 function bayes(
-    R::Union{AbstractVector, AbstractMatrix},
-    w=nothing,
-    R0=nothing,
+    R,
+    w,
+    R0,
 )::Tuple{Float64, Float64}
     Rm = _as_2d_int_matrix(R)
 
@@ -109,10 +109,13 @@ function bayes(
         D = 0
         R0m = zeros(Int, M, 0)
     else
-        R0m = Int.(Array(R0))
+        R0m = _as_eval_int_array(R0, "R0")
         if ndims(R0m) == 1
             try
-                R0m = reshape(R0m, M, :)
+                # NumPy's `reshape(M, -1)` consumes a flat prior row by row.
+                # Julia arrays are column-major, so first form the transposed
+                # `D × M` layout and then materialize its transpose.
+                R0m = permutedims(reshape(R0m, :, M))
             catch
                 error("R0 must have the same number of rows (M) as R.")
             end
@@ -217,11 +220,11 @@ mu, sigma, lo, hi = bayes_ci(R, w, R0, 0.95, (0.0, 1.0))
 ```
 """
 function bayes_ci(
-    R::Union{AbstractVector, AbstractMatrix},
-    w=nothing,
-    R0=nothing,
-    confidence::Real=0.95,
-    bounds::Union{Nothing, Tuple{<:Real, <:Real}}=nothing,
+    R,
+    w,
+    R0,
+    confidence::Real,
+    bounds,
 )::Tuple{Float64, Float64, Float64, Float64}
     mu, sigma = bayes(R, w, R0)
     lo, hi = normal_credible_interval(

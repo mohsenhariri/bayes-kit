@@ -106,10 +106,10 @@ function pagerank(
     e = if isnothing(teleport)
         fill(1.0 / L, L)
     else
-        if !(teleport isa AbstractArray)
+        if !(teleport isa AbstractVector || teleport isa Tuple)
             error("teleport must have shape (L=$L,), got ()")
         end
-        e_raw = Array(teleport)
+        e_raw = collect(teleport)
         if ndims(e_raw) != 1 || size(e_raw, 1) != L
             error("teleport must have shape (L=$L,), got $(size(e_raw))")
         end
@@ -128,24 +128,19 @@ function pagerank(
     end
 
     P_hat = _pairwise_win_probabilities(Rv)
-    W = copy(P_hat)
+    A = copy(P_hat)
     for i in 1:L
-        W[i, i] = 0.0
+        A[i, i] = 0.0
     end
-
-    P = zeros(Float64, L, L)
-    for j in 1:L
-        col_sum = sum(@view W[:, j])
-        if col_sum > 0.0
-            P[:, j] .= W[:, j] ./ col_sum
-        else
-            P[:, j] .= 1.0 / L
-        end
+    row_sums = vec(sum(A; dims=2))
+    for i in 1:L
+        A[i, i] = row_sums[i]
     end
+    Q = A ./ Float64(L - 1)
 
     r = fill(1.0 / L, L)
     for _ in 1:max_iter_i
-        r_new = damping_f .* (P * r) .+ (1.0 - damping_f) .* e
+        r_new = damping_f .* (Q * r) .+ (1.0 - damping_f) .* e
         if sum(abs.(r_new .- r)) < tol_f
             r = r_new
             break
@@ -194,19 +189,17 @@ function spectral(
 
     Rv = validate_input(R)
     L = size(Rv, 1)
-    P_hat = _pairwise_win_probabilities(Rv)
-
-    W = copy(P_hat)
+    wins, ties = build_pairwise_counts(Rv)
+    total = wins .+ transpose(wins) .+ ties
+    A = (wins .+ 0.5 .* ties .+ 1.0) ./ (total .+ 2.0)
     for i in 1:L
-        W[i, i] = 0.0
+        A[i, i] = 0.0
     end
-    for i in 1:L
-        W[i, i] = sum(@view W[i, :])
-    end
+    shifted_A = A + Matrix{Float64}(I, L, L)
 
     v = fill(1.0 / L, L)
     for _ in 1:max_iter_i
-        v_new = W * v
+        v_new = shifted_A * v
         s = sum(v_new)
         if s <= 0.0 || any(x -> !isfinite(x), v_new)
             v_uniform = fill(1.0 / L, L)
@@ -436,7 +429,7 @@ function nash(
         A[i, i] = 0.0
     end
 
-    function fallback_uniform()
+    function uniform_equilibrium()
         equilibrium = fill(1.0 / L, L)
         scores = _nash_scores_for_type(score_type_s, P_hat, A, equilibrium)
         return _nash_finalize(
@@ -449,7 +442,7 @@ function nash(
     end
 
     if all(abs.(A) .<= 1e-14)
-        return fallback_uniform()
+        return uniform_equilibrium()
     end
 
     model = Model(HiGHS.Optimizer)
@@ -462,24 +455,28 @@ function nash(
         @constraint(model, sum(A[i, j] * x[i] for i in 1:L) >= v)
     end
 
-    try
+    optimization_error = try
         optimize!(model)
-    catch
-        return fallback_uniform()
+        nothing
+    catch err
+        err
     end
 
+    if !isnothing(optimization_error)
+        error("Nash equilibrium linear program failed: $(sprint(showerror, optimization_error))")
+    end
     if !has_values(model) || termination_status(model) != OPTIMAL
-        return fallback_uniform()
+        error("Nash equilibrium linear program failed: $(termination_status(model))")
     end
 
     x_raw = Float64.(value.(x))
     if any(xi -> !isfinite(xi), x_raw)
-        return fallback_uniform()
+        error("Nash equilibrium linear program failed: returned non-finite solution")
     end
 
-    x_pos = clamp.(x_raw, 0.0, Inf)
-    s = sum(x_pos)
-    equilibrium = s > 0.0 ? (x_pos ./ s) : fill(1.0 / L, L)
+    totals = vec(sum(Rv; dims=(2, 3)))
+    maximizers = totals .== maximum(totals)
+    equilibrium = Float64.(maximizers) ./ count(maximizers)
     scores = _nash_scores_for_type(score_type_s, P_hat, A, equilibrium)
 
     return _nash_finalize(

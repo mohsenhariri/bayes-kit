@@ -45,7 +45,7 @@ end
 function _rankdata_desc(values::AbstractVector; method="average")
     method_s = string(method)
     if method_s ∉ ("average", "min", "max", "dense", "ordinal")
-        error("rank_ties must be one of {'average','min','max','dense','ordinal'}")
+        error("unknown method \"$method_s\"")
     end
 
     n = length(values)
@@ -539,14 +539,14 @@ function _solve_kemeny_milp(
 
     optimize!(model)
 
+    status = termination_status(model)
     if !has_values(model)
-        return nothing, false, nothing
+        return nothing, status, nothing
     end
 
     x = value.(y)
-    success = termination_status(model) == OPTIMAL
     obj = objective_value(model)
-    return x, success, obj
+    return x, status, obj
 end
 
 """
@@ -610,9 +610,9 @@ function kemeny_young(
         end
     end
 
-    x, success, opt_obj = _solve_kemeny_milp(c, L; time_limit=time_limit)
-    if x === nothing
-        error("MILP solver failed to return a solution")
+    x, status, opt_obj = _solve_kemeny_milp(c, L; time_limit=time_limit)
+    if status != OPTIMAL || x === nothing || isnothing(opt_obj) || !isfinite(Float64(opt_obj))
+        error("Kemeny-Young MILP did not prove an optimal solution: $status")
     end
 
     y = zeros(Float64, L, L)
@@ -625,7 +625,7 @@ function kemeny_young(
         end
     end
 
-    if !tie_aware || !success
+    if !tie_aware
         scores = vec(sum(y; dims=2))
         ranking = rank_scores(scores)[string(method)]
         return return_scores ? (ranking, scores) : ranking
@@ -636,25 +636,20 @@ function kemeny_young(
 
     function can_be_optimal_with(i_above_j::Int, j_below_i::Int)
         idx = _kemeny_var_index(i_above_j, j_below_i, L)
-        x_fix, success_fix, obj_fix = _solve_kemeny_milp(c, L; time_limit=time_limit, fixed_var=idx)
+        x_fix, status_fix, obj_fix =
+            _solve_kemeny_milp(c, L; time_limit=time_limit, fixed_var=idx)
 
-        if x_fix === nothing
-            return true
+        if status_fix == INFEASIBLE
+            return false
+        end
+        if status_fix != OPTIMAL || x_fix === nothing || isnothing(obj_fix) ||
+           !isfinite(Float64(obj_fix))
+            error(
+                "Tie-aware Kemeny-Young MILP did not prove an optimal subproblem solution: $status_fix",
+            )
         end
 
-        if isnothing(obj_fix) || !isfinite(Float64(obj_fix))
-            return true
-        end
-
-        if Float64(obj_fix) <= opt_value + opt_tol
-            return true
-        end
-
-        if !success_fix
-            return true
-        end
-
-        return false
+        return Float64(obj_fix) <= opt_value + opt_tol
     end
 
     forced = falses(L, L)
@@ -724,8 +719,8 @@ function nanson(
         end
 
         mean_score = sum(borda_sub) / Float64(n_alive)
-        to_eliminate = borda_sub .< mean_score
-        if !any(to_eliminate)
+        to_eliminate = borda_sub .<= mean_score
+        if all(to_eliminate)
             break
         end
 

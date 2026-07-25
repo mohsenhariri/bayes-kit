@@ -7,6 +7,46 @@ function _comb_float(n::Integer, k::Integer)::Float64
     return Float64(binomial(BigInt(n), BigInt(k)))
 end
 
+function _log_comb(n::Integer, k::Integer)::Float64
+    if n < 0 || k < 0 || k > n
+        return -Inf
+    end
+    kk = min(k, n - k)
+    out = 0.0
+    @inbounds for i in 1:kk
+        out += log(Float64(n - kk + i)) - log(Float64(i))
+    end
+    return out
+end
+
+function _hypergeom_pmf(
+    population::Integer,
+    successes::Integer,
+    draws::Integer,
+    selected_successes::Integer,
+)::Float64
+    failures = population - successes
+    if selected_successes < 0 ||
+       selected_successes > successes ||
+       draws - selected_successes < 0 ||
+       draws - selected_successes > failures
+        return 0.0
+    end
+    logp = _log_comb(successes, selected_successes) +
+           _log_comb(failures, draws - selected_successes) -
+           _log_comb(population, draws)
+    return clamp(exp(logp), 0.0, 1.0)
+end
+
+function _pass_probability(population::Integer, successes::Integer, draws::Integer)::Float64
+    failures = population - successes
+    if draws > failures
+        return 1.0
+    end
+    log_failure = _log_comb(failures, draws) - _log_comb(population, draws)
+    return clamp(-expm1(log_failure), 0.0, 1.0)
+end
+
 """
     pass_at_k(R, k) -> Float64
 
@@ -60,7 +100,7 @@ R = [1 0 1 0;
 s = pass_at_k(R, 2)
 ```
 """
-function pass_at_k(R::Union{AbstractVector, AbstractMatrix}, k::Integer)::Float64
+function pass_at_k(R, k::Integer)::Float64
     Rm = _as_2d_int_matrix(R)
     _validate_binary(Rm)
 
@@ -70,8 +110,7 @@ function pass_at_k(R::Union{AbstractVector, AbstractMatrix}, k::Integer)::Float6
     end
 
     nu = vec(sum(Rm, dims=2))
-    denom = _comb_float(N, k)
-    vals = [1.0 - _comb_float(N - Int(n), k) / denom for n in nu]
+    vals = [_pass_probability(N, Int(n), k) for n in nu]
 
     return Float64(sum(vals) / M)
 end
@@ -127,7 +166,7 @@ R = [1 0 1 0;
 s = pass_hat_k(R, 2)
 ```
 """
-function pass_hat_k(R::Union{AbstractVector, AbstractMatrix}, k::Integer)::Float64
+function pass_hat_k(R, k::Integer)::Float64
     Rm = _as_2d_int_matrix(R)
     _validate_binary(Rm)
 
@@ -137,8 +176,7 @@ function pass_hat_k(R::Union{AbstractVector, AbstractMatrix}, k::Integer)::Float
     end
 
     nu = vec(sum(Rm, dims=2))
-    denom = _comb_float(N, k)
-    vals = [_comb_float(Int(n), k) / denom for n in nu]
+    vals = [_hypergeom_pmf(N, Int(n), k, k) for n in nu]
 
     return Float64(sum(vals) / M)
 end
@@ -182,7 +220,7 @@ R = [1 0 1 0;
 s = g_pass_at_k(R, 2)
 ```
 """
-function g_pass_at_k(R::Union{AbstractVector, AbstractMatrix}, k::Integer)::Float64
+function g_pass_at_k(R, k::Integer)::Float64
     return pass_hat_k(R, k)
 end
 
@@ -245,7 +283,7 @@ s = g_pass_at_k_tau(R, 3, 0.67)
 ```
 """
 function g_pass_at_k_tau(
-    R::Union{AbstractVector, AbstractMatrix},
+    R,
     k::Integer,
     tau::Real,
 )::Float64
@@ -267,8 +305,6 @@ function g_pass_at_k_tau(
     end
 
     nu = vec(sum(Rm, dims=2))
-    denom = _comb_float(N, k)
-
     j0 = Int(ceil(tau_f * k))
     if j0 > k
         return 0.0
@@ -277,9 +313,11 @@ function g_pass_at_k_tau(
     vals = zeros(Float64, M)
     for j in j0:k
         for (idx, n) in enumerate(nu)
-            vals[idx] += _comb_float(Int(n), j) * _comb_float(N - Int(n), k - j) / denom
+            vals[idx] += _hypergeom_pmf(N, Int(n), k, j)
         end
     end
+
+    vals .= clamp.(vals, 0.0, 1.0)
 
     return Float64(sum(vals) / M)
 end
@@ -334,7 +372,7 @@ R = [1 0 1 0;
 s = mg_pass_at_k(R, 3)
 ```
 """
-function mg_pass_at_k(R::Union{AbstractVector, AbstractMatrix}, k::Integer)::Float64
+function mg_pass_at_k(R, k::Integer)::Float64
     Rm = _as_2d_int_matrix(R)
     _validate_binary(Rm)
 
@@ -344,8 +382,6 @@ function mg_pass_at_k(R::Union{AbstractVector, AbstractMatrix}, k::Integer)::Flo
     end
 
     nu = vec(sum(Rm, dims=2))
-    denom = _comb_float(N, k)
-
     majority = Int(ceil(0.5 * k))
     if majority >= k
         return 0.0
@@ -354,12 +390,13 @@ function mg_pass_at_k(R::Union{AbstractVector, AbstractMatrix}, k::Integer)::Flo
     vals = zeros(Float64, M)
     for j in (majority + 1):k
         for (idx, n) in enumerate(nu)
-            pmf = _comb_float(Int(n), j) * _comb_float(N - Int(n), k - j) / denom
+            pmf = _hypergeom_pmf(N, Int(n), k, j)
             vals[idx] += (j - majority) * pmf
         end
     end
 
     vals .*= 2.0 / k
+    vals .= clamp.(vals, 0.0, 1.0)
     return Float64(sum(vals) / M)
 end
 
@@ -383,7 +420,7 @@ function _beta_ratio(alpha::Float64, beta::Float64, a::Int, b::Int)::Float64
 end
 
 function _binary_beta_posterior_params(
-    R::Union{AbstractVector, AbstractMatrix};
+    R;
     alpha0::Real=1.0,
     beta0::Real=1.0,
 )::Tuple{Vector{Float64}, Vector{Float64}}
@@ -398,7 +435,7 @@ function _binary_beta_posterior_params(
 end
 
 function _pass_at_k_bayes(
-    R::Union{AbstractVector, AbstractMatrix},
+    R,
     k::Integer;
     alpha0::Real=1.0,
     beta0::Real=1.0,
@@ -435,7 +472,7 @@ function _pass_at_k_bayes(
 end
 
 function _pass_hat_k_bayes(
-    R::Union{AbstractVector, AbstractMatrix},
+    R,
     k::Integer;
     alpha0::Real=1.0,
     beta0::Real=1.0,
@@ -471,7 +508,7 @@ function _pass_hat_k_bayes(
 end
 
 function _g_pass_at_k_tau_bayes(
-    R::Union{AbstractVector, AbstractMatrix},
+    R,
     k::Integer,
     tau::Real;
     alpha0::Real=1.0,
@@ -539,7 +576,7 @@ function _g_pass_at_k_tau_bayes(
 end
 
 function _mg_pass_at_k_bayes(
-    R::Union{AbstractVector, AbstractMatrix},
+    R,
     k::Integer;
     alpha0::Real=1.0,
     beta0::Real=1.0,
@@ -670,12 +707,12 @@ mu, sigma, lo, hi = pass_at_k_ci(R, 2, 0.95, (0.0, 1.0), 1.0, 1.0)
 ```
 """
 function pass_at_k_ci(
-    R::Union{AbstractVector, AbstractMatrix},
+    R,
     k::Integer,
-    confidence::Real=0.95,
-    bounds::Tuple{<:Real, <:Real}=(0.0, 1.0),
-    alpha0::Real=1.0,
-    beta0::Real=1.0,
+    confidence::Real,
+    bounds,
+    alpha0::Real,
+    beta0::Real,
 )::Tuple{Float64, Float64, Float64, Float64}
     mu, sigma = _pass_at_k_bayes(R, k; alpha0=alpha0, beta0=beta0)
     lo, hi = normal_credible_interval(
@@ -754,12 +791,12 @@ mu, sigma, lo, hi = pass_hat_k_ci(R, 2, 0.95, (0.0, 1.0), 1.0, 1.0)
 ```
 """
 function pass_hat_k_ci(
-    R::Union{AbstractVector, AbstractMatrix},
+    R,
     k::Integer,
-    confidence::Real=0.95,
-    bounds::Tuple{<:Real, <:Real}=(0.0, 1.0),
-    alpha0::Real=1.0,
-    beta0::Real=1.0,
+    confidence::Real,
+    bounds,
+    alpha0::Real,
+    beta0::Real,
 )::Tuple{Float64, Float64, Float64, Float64}
     mu, sigma = _pass_hat_k_bayes(R, k; alpha0=alpha0, beta0=beta0)
     lo, hi = normal_credible_interval(
@@ -820,12 +857,12 @@ mu, sigma, lo, hi = g_pass_at_k_ci(R, 2)
 ```
 """
 function g_pass_at_k_ci(
-    R::Union{AbstractVector, AbstractMatrix},
+    R,
     k::Integer,
-    confidence::Real=0.95,
-    bounds::Tuple{<:Real, <:Real}=(0.0, 1.0),
-    alpha0::Real=1.0,
-    beta0::Real=1.0,
+    confidence::Real,
+    bounds,
+    alpha0::Real,
+    beta0::Real,
 )::Tuple{Float64, Float64, Float64, Float64}
     return pass_hat_k_ci(R, k, confidence, bounds, alpha0, beta0)
 end
@@ -906,13 +943,13 @@ mu, sigma, lo, hi = g_pass_at_k_tau_ci(R, 3, 0.67)
 ```
 """
 function g_pass_at_k_tau_ci(
-    R::Union{AbstractVector, AbstractMatrix},
+    R,
     k::Integer,
     tau::Real,
-    confidence::Real=0.95,
-    bounds::Tuple{<:Real, <:Real}=(0.0, 1.0),
-    alpha0::Real=1.0,
-    beta0::Real=1.0,
+    confidence::Real,
+    bounds,
+    alpha0::Real,
+    beta0::Real,
 )::Tuple{Float64, Float64, Float64, Float64}
     mu, sigma = _g_pass_at_k_tau_bayes(R, k, tau; alpha0=alpha0, beta0=beta0)
     lo, hi = normal_credible_interval(
@@ -992,12 +1029,12 @@ mu, sigma, lo, hi = mg_pass_at_k_ci(R, 3)
 ```
 """
 function mg_pass_at_k_ci(
-    R::Union{AbstractVector, AbstractMatrix},
+    R,
     k::Integer,
-    confidence::Real=0.95,
-    bounds::Tuple{<:Real, <:Real}=(0.0, 1.0),
-    alpha0::Real=1.0,
-    beta0::Real=1.0,
+    confidence::Real,
+    bounds,
+    alpha0::Real,
+    beta0::Real,
 )::Tuple{Float64, Float64, Float64, Float64}
     mu, sigma = _mg_pass_at_k_bayes(R, k; alpha0=alpha0, beta0=beta0)
     lo, hi = normal_credible_interval(

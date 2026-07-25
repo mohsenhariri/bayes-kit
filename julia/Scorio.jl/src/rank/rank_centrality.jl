@@ -1,27 +1,4 @@
-"""Rank Centrality method scaffold."""
-
-function _is_connected_undirected(adj::AbstractMatrix{Bool})::Bool
-    n = size(adj, 1)
-    if n == 0
-        return true
-    end
-
-    seen = falses(n)
-    stack = Int[1]
-    seen[1] = true
-
-    while !isempty(stack)
-        i = pop!(stack)
-        for j in 1:n
-            if adj[i, j] && !seen[j]
-                seen[j] = true
-                push!(stack, j)
-            end
-        end
-    end
-
-    return all(seen)
-end
+"""Rank Centrality method."""
 
 function _stationary_distribution_power(
     P::AbstractMatrix{<:Real};
@@ -135,23 +112,22 @@ function rank_centrality(
     deg = vec(sum(adj; dims=2))
     d_max = isempty(deg) ? 0 : Int(maximum(deg))
 
+    p_ji = zeros(Float64, L, L)
+    mask = adj
+    p_ji[mask] .= transpose(wins_s)[mask] ./ denom[mask]
+    if teleport_f == 0.0 && smoothing_f == 0.0 && tie_mode == "ignore"
+        if !is_strongly_connected(p_ji .> 0.0)
+            error(
+                "Rank Centrality requires strongly connected positive transition support when tie_handling='ignore'; use teleport>0, smoothing>0, or tie_handling='half'.",
+            )
+        end
+    end
+
     if d_max == 0
         scores = fill(1.0 / L, L)
         ranking = rank_scores(scores)[string(method)]
         return return_scores ? (ranking, scores) : ranking
     end
-
-    if teleport_f == 0.0 && smoothing_f == 0.0 && tie_mode == "ignore"
-        if !_is_connected_undirected(adj)
-            error(
-                "Rank Centrality requires a connected comparison graph; use teleport>0, smoothing>0, or tie_handling='half'.",
-            )
-        end
-    end
-
-    p_ji = zeros(Float64, L, L)
-    mask = adj
-    p_ji[mask] .= transpose(wins_s)[mask] ./ denom[mask]
 
     P = zeros(Float64, L, L)
     P[mask] .= p_ji[mask] ./ Float64(d_max)

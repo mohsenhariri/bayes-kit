@@ -1,7 +1,7 @@
 """Average-family eval metrics with Bayesian uncertainty scaling."""
 
 function _avg(
-    R::Union{AbstractVector, AbstractMatrix},
+    R,
     w=nothing,
 )::Float64
     Rm = _as_2d_int_matrix(R)
@@ -68,8 +68,8 @@ a, sigma = avg(R)
 ```
 """
 function avg(
-    R::Union{AbstractVector, AbstractMatrix},
-    w=nothing,
+    R,
+    w,
 )::Tuple{Float64, Float64}
     Rm = _as_2d_int_matrix(R)
 
@@ -142,10 +142,10 @@ a, sigma, lo, hi = avg_ci(R, nothing, 0.95, (0.0, 1.0))
 ```
 """
 function avg_ci(
-    R::Union{AbstractVector, AbstractMatrix},
-    w=nothing,
-    confidence::Real=0.95,
-    bounds::Union{Nothing, Tuple{<:Real, <:Real}}=nothing,
+    R,
+    w,
+    confidence::Real,
+    bounds,
 )::Tuple{Float64, Float64, Float64, Float64}
     a, sigma = avg(R, w)
     lo, hi = normal_credible_interval(

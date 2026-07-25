@@ -1,50 +1,5 @@
 """Bayesian ranking methods."""
 
-mutable struct _SimpleRNG
-    state::UInt64
-    has_spare::Bool
-    spare::Float64
-end
-
-function _SimpleRNG(seed)
-    s = UInt64(hash(seed))
-    if s == 0x0000000000000000
-        s = 0x9e3779b97f4a7c15
-    end
-    return _SimpleRNG(s, false, 0.0)
-end
-
-function _rand_u64!(rng::_SimpleRNG)
-    rng.state += 0x9e3779b97f4a7c15
-    z = rng.state
-    z = (z ⊻ (z >> 30)) * 0xbf58476d1ce4e5b9
-    z = (z ⊻ (z >> 27)) * 0x94d049bb133111eb
-    return z ⊻ (z >> 31)
-end
-
-function _rand_uniform!(rng::_SimpleRNG)
-    x = _rand_u64!(rng)
-    # Convert to (0, 1) using top 53 bits.
-    return (Float64(x >> 11) + 0.5) / 9007199254740992.0
-end
-
-function _randn!(rng::_SimpleRNG)
-    if rng.has_spare
-        rng.has_spare = false
-        return rng.spare
-    end
-
-    u1 = _rand_uniform!(rng)
-    u2 = _rand_uniform!(rng)
-    r = sqrt(-2.0 * log(u1))
-    theta = 2.0 * π * u2
-    z0 = r * cos(theta)
-    z1 = r * sin(theta)
-    rng.spare = z1
-    rng.has_spare = true
-    return z0
-end
-
 function _allclose_to_first(v::AbstractVector{<:Real}; rtol::Real=1e-5, atol::Real=1e-8)
     if isempty(v)
         return true
@@ -58,39 +13,6 @@ function _allclose_to_first(v::AbstractVector{<:Real}; rtol::Real=1e-5, atol::Re
     return true
 end
 
-function _rand_gamma(rng::_SimpleRNG, alpha::Float64)
-    if alpha <= 0.0 || !isfinite(alpha)
-        error("Gamma shape must be positive and finite")
-    end
-
-    if alpha < 1.0
-        u = _rand_uniform!(rng)
-        return _rand_gamma(rng, alpha + 1.0) * u^(1.0 / alpha)
-    end
-
-    d = alpha - 1.0 / 3.0
-    c = 1.0 / sqrt(9.0 * d)
-    while true
-        x = _randn!(rng)
-        v = (1.0 + c * x)^3
-        if v <= 0.0
-            continue
-        end
-        u = _rand_uniform!(rng)
-        if u < 1.0 - 0.0331 * x^4
-            return d * v
-        end
-        if log(u) < 0.5 * x^2 + d * (1.0 - v + log(v))
-            return d * v
-        end
-    end
-end
-
-function _rand_beta(rng::_SimpleRNG, alpha::Float64, beta::Float64)
-    x = _rand_gamma(rng, alpha)
-    y = _rand_gamma(rng, beta)
-    return x / (x + y)
-end
 
 """
     thompson(
@@ -158,7 +80,7 @@ function thompson(
     end
 
     L, M, N = size(Rv)
-    rng = _SimpleRNG(seed)
+    rng = _NumpyRNG(seed)
 
     successes = vec(sum(reshape(Rv, L, :), dims=2))
     total = Float64(M * N)
@@ -176,7 +98,7 @@ function thompson(
     ranks = zeros(Float64, L)
     for _ in 1:n_samples_i
         for l in 1:L
-            samples[l] = _rand_beta(rng, post_alphas[l], post_betas[l])
+            samples[l] = _numpy_beta!(rng, post_alphas[l], post_betas[l])
         end
 
         order = sortperm(samples; rev=true)
@@ -187,7 +109,10 @@ function thompson(
     end
 
     avg_ranks = rank_sums ./ n_samples_i
-    scores = -avg_ranks
+    scores = average_equivalent_scores(
+        -avg_ranks,
+        hcat(post_alphas, post_betas),
+    )
     ranking = rank_scores(scores)[string(method)]
     return return_scores ? (ranking, scores) : ranking
 end
@@ -266,7 +191,7 @@ function bayesian_mcmc(
     end
 
     L = size(Rv, 1)
-    rng = _SimpleRNG(seed)
+    rng = _NumpyRNG(seed)
 
     wins = build_pairwise_wins(Rv)
     if sum(wins) <= 0.0
@@ -308,11 +233,12 @@ function bayesian_mcmc(
 
     total_iters = n_samples_i + burnin_i
     for iteration in 0:(total_iters - 1)
-        theta_proposed = theta_current .+ [ _randn!(rng) for _ in 1:L ] .* proposal_std
+        theta_proposed = theta_current .+
+                         [_numpy_standard_normal!(rng) for _ in 1:L] .* proposal_std
         log_post_proposed = log_posterior(theta_proposed)
         log_accept_prob = log_post_proposed - log_post_current
 
-        if log(_rand_uniform!(rng)) < min(log_accept_prob, 0.0)
+        if log(_numpy_uniform!(rng)) < min(log_accept_prob, 0.0)
             theta_current = theta_proposed
             log_post_current = log_post_proposed
             accepted += 1
@@ -332,7 +258,7 @@ function bayesian_mcmc(
         end
     end
 
-    scores = score_sum ./ n_samples_i
+    scores = average_equivalent_scores(score_sum ./ n_samples_i, Rv)
     ranking = rank_scores(scores)[string(method)]
     return return_scores ? (ranking, scores) : ranking
 end
