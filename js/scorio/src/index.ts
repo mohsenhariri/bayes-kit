@@ -13,7 +13,21 @@
  *
  * Ranking estimators live under the `rank` namespace (`scorio.rank.borda(...)`)
  * and are also importable directly from `scorio/rank`.
+ *
+ * Sequential-inference helpers live under the `sinf` namespace
+ * (`scorio.sinf.confseqMean(...)`) and are also importable from `scorio/sinf`.
+ *
+ * Test-time-scaling aggregation lives under `aggregate` (with short alias
+ * `agg`) and is also importable directly from `scorio/aggregate`.
+ *
+ * Ranking comparison and collision-free ranking hashes live under `utils`
+ * and are also importable directly from `scorio/utils`.
  */
+
+import * as aggregate from "./aggregate/index.js";
 
 export * as eval from "./eval/index.js";
 export * as rank from "./rank/index.js";
+export * as sinf from "./sinf/index.js";
+export * as utils from "./utils/index.js";
+export { aggregate, aggregate as agg };

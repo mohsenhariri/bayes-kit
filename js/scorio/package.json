@@ -40,6 +40,21 @@
       "types": "./dist/rank/index.d.ts",
       "import": "./dist/rank/index.js",
       "require": "./dist/rank/index.cjs"
+    },
+    "./aggregate": {
+      "types": "./dist/aggregate/index.d.ts",
+      "import": "./dist/aggregate/index.js",
+      "require": "./dist/aggregate/index.cjs"
+    },
+    "./sinf": {
+      "types": "./dist/sinf/index.d.ts",
+      "import": "./dist/sinf/index.js",
+      "require": "./dist/sinf/index.cjs"
+    },
+    "./utils": {
+      "types": "./dist/utils/index.d.ts",
+      "import": "./dist/utils/index.js",
+      "require": "./dist/utils/index.cjs"
     }
   },
   "files": [
