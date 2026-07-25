@@ -86,6 +86,7 @@ import {
 
 // Priors
 import {
+  Prior,
   GaussianPrior,
   LaplacePrior,
   CauchyPrior,
@@ -96,8 +97,54 @@ import {
 
 export type { RankResult, RankMethod, BaseRankOptions } from "./internal/result.js";
 export type { TensorInput, Tensor3 } from "./internal/tensor.js";
-export type { Prior } from "./priors.js";
+export type {
+  PairwiseTieHandling,
+  EloOptions,
+  TrueSkillOptions,
+  GlickoOptions,
+  GlickoResult,
+} from "./pairwise.js";
+export type {
+  PageRankOptions,
+  SpectralOptions,
+  AlphaRankOptions,
+  NashOptions,
+  NashResult,
+} from "./graph.js";
+export type {
+  MinimaxOptions,
+  SchulzeOptions,
+  RankedPairsOptions,
+  KemenyYoungOptions,
+  EliminationOptions,
+} from "./voting.js";
+export type { RankCentralityOptions } from "./rankCentrality.js";
+export type {
+  HodgeRankOptions,
+  HodgeDiagnostics,
+  HodgeRankResult,
+} from "./hodgeRank.js";
+export type {
+  IrtResult,
+  RaschItemParams,
+  TwoPlItemParams,
+  ThreePlItemParams,
+  RaschMmlItemParams,
+  DynamicIrtItemParams,
+  MirtItemParams,
+  IrtOptions,
+  IrtMapOptions,
+  Irt2plOptions,
+  Irt2plMapOptions,
+  Irt3plOptions,
+  Irt3plMapOptions,
+  MmlOptions,
+  MmlCredibleOptions,
+  DynamicIrtOptions,
+  MirtOptions,
+} from "./irt.js";
 export {
+  Prior,
   GaussianPrior,
   LaplacePrior,
   CauchyPrior,

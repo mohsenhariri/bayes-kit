@@ -1,10 +1,3 @@
-# Local developer tasks for the npm package (js/scorio).
-#
-# Routine releases go through GitHub Actions (.github/workflows/npm-publish.yml),
-# triggered by a `js-v*` GitHub Release. Use `make publish` here only for the
-# FIRST manual publish (so the package exists and trusted publishing can then be
-# configured on npmjs.com), or as an escape hatch.
-
 PKG := scorio
 NPM := npm --prefix $(PKG)
 
@@ -34,7 +27,6 @@ test:
 typecheck:
 	$(NPM) run typecheck
 
-# Propagate the root VERSION file into package.json (and the rest of the repo).
 version:
 	cd .. && python scripts/sync_version.py
 
@@ -44,9 +36,6 @@ pack: build
 publish-dry: build
 	cd $(PKG) && npm publish --dry-run
 
-# First/manual publish. Requires `npm login` locally. Provenance is only
-# available from CI (OIDC), so the manual first publish has none; subsequent
-# CI publishes via trusted publishing add provenance automatically.
 publish: test build
 	cd $(PKG) && npm publish
 

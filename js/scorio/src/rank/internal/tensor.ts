@@ -10,16 +10,19 @@
  * A 2-D `(L, M)` matrix is promoted to `(L, M, 1)`.
  */
 
+/** Outcome accepted by Python's rank validator (`bool` is binary). */
+export type Outcome = number | boolean;
+
 /** A 2-D `(L, M)` matrix or a 3-D `(L, M, N)` tensor of outcomes. */
 export type TensorInput =
-  | readonly (readonly number[])[]
-  | readonly (readonly (readonly number[])[])[];
+  | readonly (readonly Outcome[])[]
+  | readonly (readonly (readonly Outcome[])[])[];
 
 /** Validated dense 3-D response tensor, shape `[L][M][N]`. */
 export type Tensor3 = number[][][];
 
-function isNumber(x: unknown): x is number {
-  return typeof x === "number";
+function isOutcome(x: unknown): x is Outcome {
+  return typeof x === "number" || typeof x === "boolean";
 }
 
 /**
@@ -31,23 +34,36 @@ function isNumber(x: unknown): x is number {
  * `bayes` path which passes `binary_only=False`).
  */
 export function validateInput(R: TensorInput, binaryOnly = true): Tensor3 {
-  if (!Array.isArray(R) || R.length === 0) {
+  if (!Array.isArray(R)) {
     throw new Error(
       "Input R must be a 2D array of shape (L, M) or 3D array of shape (L, M, N)",
     );
   }
-  const first = (R as readonly unknown[])[0];
+  const raw = R as readonly unknown[];
   let tensor: Tensor3;
 
-  if (Array.isArray(first) && first.length > 0 && Array.isArray(first[0])) {
-    // 3-D input.
-    tensor = (R as readonly (readonly (readonly number[])[])[]).map((mat) =>
-      (mat as readonly (readonly number[])[]).map((row) => row.map(coerceInt)),
+  // Empty 2-D rows are intentionally classified as 2-D, matching
+  // `np.asarray([[], []]).ndim == 2`. A nested empty trial row is 3-D.
+  const is2d = raw.every(
+    (row) => Array.isArray(row) && row.every((value) => isOutcome(value)),
+  );
+  const is3d = raw.every(
+    (matrix) =>
+      Array.isArray(matrix) &&
+      matrix.every(
+        (row) => Array.isArray(row) && row.every((value) => isOutcome(value)),
+      ),
+  );
+
+  if (is2d) {
+    tensor = raw.map((row) =>
+      (row as readonly Outcome[]).map((value) => [coerceOutcome(value, binaryOnly)]),
     );
-  } else if (Array.isArray(first)) {
-    // 2-D input -> promote to (L, M, 1).
-    tensor = (R as readonly (readonly number[])[]).map((row) =>
-      row.map((v) => [coerceInt(v)]),
+  } else if (is3d) {
+    tensor = raw.map((matrix) =>
+      (matrix as readonly (readonly Outcome[])[]).map((row) =>
+        row.map((value) => coerceOutcome(value, binaryOnly)),
+      ),
     );
   } else {
     throw new Error(
@@ -56,8 +72,8 @@ export function validateInput(R: TensorInput, binaryOnly = true): Tensor3 {
   }
 
   const L = tensor.length;
-  const M = tensor[0]!.length;
-  const N = tensor[0]![0]!.length;
+  const M = tensor[0]?.length ?? 0;
+  const N = tensor[0]?.[0]?.length ?? 0;
 
   // Rectangularity.
   for (const mat of tensor) {
@@ -71,23 +87,6 @@ export function validateInput(R: TensorInput, binaryOnly = true): Tensor3 {
     }
   }
 
-  // Value validation.
-  for (const mat of tensor) {
-    for (const row of mat) {
-      for (const v of row) {
-        if (!Number.isFinite(v)) {
-          throw new Error("Input R must not contain NaN or Inf values");
-        }
-        if (binaryOnly && v !== 0 && v !== 1) {
-          throw new Error("Input R must contain only binary values (0 or 1)");
-        }
-        if (v < 0) {
-          throw new Error("Input R must contain only non-negative outcomes");
-        }
-      }
-    }
-  }
-
   if (L < 2) throw new Error(`Need at least 2 models to rank, got L=${L}`);
   if (M < 1) throw new Error(`Need at least 1 question, got M=${M}`);
   if (N < 1) throw new Error(`Need at least 1 trial, got N=${N}`);
@@ -95,17 +94,20 @@ export function validateInput(R: TensorInput, binaryOnly = true): Tensor3 {
   return tensor;
 }
 
-function coerceInt(x: number): number {
-  if (!isNumber(x) || !Number.isFinite(x)) {
-    if (Number.isNaN(x) || x === Infinity || x === -Infinity) {
-      throw new Error("Input R must not contain NaN or Inf values");
-    }
-    throw new Error("Input R must be numeric");
+function coerceOutcome(value: Outcome, binaryOnly: boolean): number {
+  if (typeof value === "boolean") return value ? 1 : 0;
+  if (!Number.isFinite(value)) {
+    throw new Error("Input R must not contain NaN or Inf values");
   }
-  if (!Number.isInteger(x)) {
-    throw new Error("Float inputs must be binary values (0.0 or 1.0).");
+  if (!Number.isInteger(value)) {
+    throw new Error(
+      "Float inputs must be binary values (0.0 or 1.0). Use integer values for multiclass outcomes.",
+    );
   }
-  return x;
+  if (binaryOnly && value !== 0 && value !== 1) {
+    throw new Error("Input R must contain only binary values (0 or 1)");
+  }
+  return value;
 }
 
 /** Shape `[L, M, N]` of a validated tensor. */
@@ -197,4 +199,204 @@ export function sigmoid(x: number): number {
 /** Allocate an `r x c` matrix of zeros. */
 export function zeros2(r: number, c: number): number[][] {
   return Array.from({ length: r }, () => new Array<number>(c).fill(0));
+}
+
+/** Return whether every vertex is reachable in both graph directions. */
+export function isStronglyConnected(adjacency: readonly (readonly unknown[])[]): boolean {
+  const n = adjacency.length;
+  if (adjacency.some((row) => !Array.isArray(row) || row.length !== n)) {
+    throw new Error("adjacency must be a square matrix");
+  }
+  if (n <= 1) return true;
+
+  const reachable = (transpose: boolean): boolean[] => {
+    const seen = new Array<boolean>(n).fill(false);
+    const stack = [0];
+    seen[0] = true;
+    while (stack.length > 0) {
+      const vertex = stack.pop()!;
+      for (let neighbour = 0; neighbour < n; neighbour++) {
+        const edge = transpose
+          ? Boolean(adjacency[neighbour]![vertex])
+          : Boolean(adjacency[vertex]![neighbour]);
+        if (edge && !seen[neighbour]) {
+          seen[neighbour] = true;
+          stack.push(neighbour);
+        }
+      }
+    }
+    return seen;
+  };
+
+  return reachable(false).every(Boolean) && reachable(true).every(Boolean);
+}
+
+function flattenValues(value: unknown, output: unknown[] = []): unknown[] {
+  if (Array.isArray(value)) {
+    for (const item of value) flattenValues(item, output);
+  } else {
+    output.push(value);
+  }
+  return output;
+}
+
+function valueKey(value: unknown): string {
+  if (typeof value === "number") {
+    if (Number.isNaN(value)) return "number:NaN";
+    if (Object.is(value, -0)) return "number:0";
+  }
+  return `${typeof value}:${String(value)}`;
+}
+
+/** Average scores for model rows with identical sufficient statistics. */
+export function averageEquivalentScores(
+  scores: readonly number[],
+  sufficientStatistics: readonly unknown[],
+): number[] {
+  if (!Array.isArray(scores)) {
+    throw new Error("scores must be a one-dimensional array");
+  }
+  if (!Array.isArray(sufficientStatistics) || sufficientStatistics.length !== scores.length) {
+    throw new Error("sufficient_statistics must have one row for every score");
+  }
+  const result = scores.slice();
+  const groups = new Map<string, number[]>();
+  for (let index = 0; index < scores.length; index++) {
+    const key = flattenValues(sufficientStatistics[index]).map(valueKey).join("\u0000");
+    const members = groups.get(key);
+    if (members) members.push(index);
+    else groups.set(key, [index]);
+  }
+  for (const members of groups.values()) {
+    if (members.length < 2) continue;
+    const groupMean = members.reduce((total, index) => total + scores[index]!, 0) /
+      members.length;
+    for (const index of members) result[index] = groupMean;
+  }
+  return result;
+}
+
+function compareTuples(first: readonly unknown[], second: readonly unknown[]): number {
+  for (let index = 0; index < first.length; index++) {
+    const a = valueKey(first[index]);
+    const b = valueKey(second[index]);
+    if (a < b) return -1;
+    if (a > b) return 1;
+  }
+  return 0;
+}
+
+/**
+ * Average exact model orbits under simultaneous model/observation
+ * permutations, matching Python's `average_event_exchangeable_scores`.
+ */
+export function averageEventExchangeableScores(
+  scores: readonly number[],
+  observations: readonly unknown[],
+): number[] {
+  if (!Array.isArray(observations) || observations.length !== scores.length) {
+    throw new Error("observations must have one row for every score");
+  }
+  const data = observations.map((row) => flattenValues(row));
+  if (data.some((row) => row.length !== data[0]!.length)) {
+    throw new Error("observations must be rectangular");
+  }
+  const L = scores.length;
+
+  const projectionMatches = (sourceRows: number[], targetRows: number[]): boolean => {
+    const nColumns = data[0]!.length;
+    const sourceColumns = Array.from({ length: nColumns }, (_, column) =>
+      sourceRows.map((row) => data[row]![column]),
+    ).sort(compareTuples);
+    const targetColumns = Array.from({ length: nColumns }, (_, column) =>
+      targetRows.map((row) => data[row]![column]),
+    ).sort(compareTuples);
+    return sourceColumns.every((column, index) => compareTuples(column, targetColumns[index]!) === 0);
+  };
+
+  const rowSignatures = data.map((row) => row.map(valueKey).sort().join("\u0000"));
+  const signatureSizes = new Map<string, number>();
+  for (const signature of rowSignatures) {
+    signatureSizes.set(signature, (signatureSizes.get(signature) ?? 0) + 1);
+  }
+  const parent = Array.from({ length: L }, (_, index) => index);
+  const find = (start: number): number => {
+    let index = start;
+    while (parent[index] !== index) {
+      parent[index] = parent[parent[index]!]!;
+      index = parent[index]!;
+    }
+    return index;
+  };
+  const union = (first: number, second: number): void => {
+    const firstRoot = find(first);
+    const secondRoot = find(second);
+    if (firstRoot !== secondRoot) parent[secondRoot] = firstRoot;
+  };
+
+  const findAutomorphism = (source: number, target: number): number[] | null => {
+    if (rowSignatures[source] !== rowSignatures[target]) return null;
+    const sourceRows = [source];
+    const targetRows = [target];
+    const usedSource = new Array<boolean>(L).fill(false);
+    const usedTarget = new Array<boolean>(L).fill(false);
+    usedSource[source] = true;
+    usedTarget[target] = true;
+    const mapping = new Array<number>(L).fill(-1);
+    mapping[source] = target;
+    const sourceOrder = Array.from({ length: L }, (_, index) => index)
+      .filter((index) => index !== source)
+      .sort(
+        (first, second) =>
+          signatureSizes.get(rowSignatures[first]!)! -
+          signatureSizes.get(rowSignatures[second]!)!,
+      );
+    if (!projectionMatches(sourceRows, targetRows)) return null;
+
+    const search = (): boolean => {
+      if (sourceRows.length === L) return true;
+      const nextSource = sourceOrder.find((index) => !usedSource[index]);
+      if (nextSource === undefined) return true;
+      const compatible: number[] = [];
+      for (let candidateTarget = 0; candidateTarget < L; candidateTarget++) {
+        if (usedTarget[candidateTarget]) continue;
+        if (rowSignatures[nextSource] !== rowSignatures[candidateTarget]) continue;
+        if (
+          projectionMatches(
+            [...sourceRows, nextSource],
+            [...targetRows, candidateTarget],
+          )
+        ) {
+          compatible.push(candidateTarget);
+        }
+      }
+      if (compatible.length === 0) return false;
+      usedSource[nextSource] = true;
+      sourceRows.push(nextSource);
+      for (const candidateTarget of compatible) {
+        usedTarget[candidateTarget] = true;
+        targetRows.push(candidateTarget);
+        mapping[nextSource] = candidateTarget;
+        if (search()) return true;
+        mapping[nextSource] = -1;
+        targetRows.pop();
+        usedTarget[candidateTarget] = false;
+      }
+      sourceRows.pop();
+      usedSource[nextSource] = false;
+      return false;
+    };
+    return search() ? mapping : null;
+  };
+
+  for (let first = 0; first < L; first++) {
+    for (let second = first + 1; second < L; second++) {
+      if (find(first) === find(second)) continue;
+      const automorphism = findAutomorphism(first, second);
+      if (automorphism === null) continue;
+      automorphism.forEach((target, source) => union(source, target));
+    }
+  }
+  const groupStatistics = parent.map((_, index) => [find(index)]);
+  return averageEquivalentScores(scores, groupStatistics);
 }

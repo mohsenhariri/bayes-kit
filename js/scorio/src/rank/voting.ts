@@ -168,12 +168,15 @@ export interface MinimaxOptions extends BaseRankOptions {
 /** Rank models with the Minimax (Simpson-Kramer) Condorcet rule. */
 export function minimax(R: TensorInput, options: MinimaxOptions = {}): RankResult {
   const method = options.method ?? "competition";
-  const variant = options.variant ?? "margin";
+  const variant = options.variant === undefined ? "margin" : options.variant;
   if (variant !== "margin" && variant !== "winning_votes") {
     throw new Error("variant must be one of {'margin','winning_votes'}");
   }
   const k = perQuestionCorrectCounts(validateInput(R));
-  const P = pairwisePreferenceCounts(k, options.tiePolicy ?? "half");
+  const P = pairwisePreferenceCounts(
+    k,
+    options.tiePolicy === undefined ? "half" : options.tiePolicy,
+  );
   const L = P.length;
   const scores = new Array<number>(L).fill(0);
   for (let i = 0; i < L; i++) {
@@ -291,8 +294,15 @@ export function rankedPairs(
 /** Options for {@link kemenyYoung}. */
 export interface KemenyYoungOptions extends BaseRankOptions {
   tiePolicy?: TiePolicy;
-  /** Tie-aware preorder over all optimal Kemeny orders. Default `true`. */
-  tieAware?: boolean;
+  /**
+   * Tie-aware preorder over all optimal Kemeny orders. Default `true`.
+   * When false and several total orders are optimal, this port returns its
+   * first deterministically enumerated optimum. SciPy/HiGHS may select a
+   * different, equally optimal labelled order from the same optimal face.
+   */
+  tieAware?: boolean | null;
+  /** Optional positive exact-solver time limit in seconds. */
+  timeLimit?: number | null;
 }
 
 function* permutations(n: number): Generator<number[]> {
@@ -316,15 +326,30 @@ function* permutations(n: number): Generator<number[]> {
   }
 }
 
-/** Rank models with Kemeny-Young rank aggregation (exact, by enumeration). */
+/**
+ * Rank models with Kemeny-Young rank aggregation (exact, by enumeration).
+ * Non-unique single-order solutions (`tieAware: false`) are solver-selection
+ * dependent; use the default tie-aware preorder for label-invariant parity.
+ */
 export function kemenyYoung(
   R: TensorInput,
   options: KemenyYoungOptions = {},
 ): RankResult {
   const method = options.method ?? "competition";
-  const tieAware = options.tieAware ?? true;
+  const tieAware =
+    options.tieAware === undefined ? true : Boolean(options.tieAware);
+  const timeLimit = options.timeLimit;
+  if (
+    timeLimit != null &&
+    (!Number.isFinite(timeLimit) || timeLimit <= 0)
+  ) {
+    throw new Error("time_limit must be a positive finite scalar.");
+  }
   const k = perQuestionCorrectCounts(validateInput(R));
-  const P = pairwisePreferenceCounts(k, options.tiePolicy ?? "half");
+  const P = pairwisePreferenceCounts(
+    k,
+    options.tiePolicy === undefined ? "half" : options.tiePolicy,
+  );
   const L = P.length;
 
   const objectiveOf = (perm: readonly number[]): number => {
@@ -336,7 +361,13 @@ export function kemenyYoung(
 
   let best = -Infinity;
   const optimal: number[][] = [];
+  const startedAt = Date.now();
   for (const perm of permutations(L)) {
+    if (timeLimit != null && Date.now() - startedAt > timeLimit * 1000) {
+      throw new Error(
+        "Kemeny-Young exact enumeration did not prove an optimal solution within time_limit.",
+      );
+    }
     const obj = objectiveOf(perm);
     if (obj > best + 1e-9) {
       best = obj;
@@ -389,6 +420,9 @@ function bordaElimination(
   rankTies: RankDataMethod,
   eliminate: (bordaSub: number[]) => boolean[] | null,
 ): RankResult {
+  if (!(["min", "max", "dense", "average", "ordinal"] as const).includes(rankTies)) {
+    throw new Error(`Unknown rankdata method: ${rankTies}`);
+  }
   const k = perQuestionCorrectCounts(validateInput(R));
   const L = k.length;
   const M = k[0]!.length;
@@ -420,12 +454,12 @@ function bordaElimination(
   return { ranking: rankScores(survival, method ?? "competition"), scores: survival };
 }
 
-/** Rank models with Nanson's Borda-elimination rule (eliminate below mean). */
+/** Rank models with Nanson's Borda-elimination rule (eliminate at or below mean). */
 export function nanson(R: TensorInput, options: EliminationOptions = {}): RankResult {
   return bordaElimination(R, options.method, options.rankTies ?? "average", (bordaSub) => {
     const mean = bordaSub.reduce((s, v) => s + v, 0) / bordaSub.length;
-    const toElim = bordaSub.map((v) => v < mean);
-    return toElim.some((x) => x) ? toElim : null;
+    const toElim = bordaSub.map((v) => v <= mean);
+    return toElim.every((x) => x) ? null : toElim;
   });
 }
 

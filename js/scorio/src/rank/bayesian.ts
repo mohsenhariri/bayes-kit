@@ -11,6 +11,7 @@
 import { rankScores } from "./internal/rankScores.js";
 import { SeededRng } from "./internal/rng.js";
 import {
+  averageEquivalentScores,
   buildPairwiseWins,
   shape3,
   validateInput,
@@ -19,6 +20,36 @@ import {
 import type { BaseRankOptions, RankResult } from "./internal/result.js";
 
 const sum = (a: readonly number[]): number => a.reduce((s, v) => s + v, 0);
+
+const PYTHON_FLOAT_PATTERN = /^[+-]?(?:(?:(?:\d(?:_?\d)*(?:\.(?:\d(?:_?\d)*)?)?|\.\d(?:_?\d)*)(?:[eE][+-]?\d(?:_?\d)*)?)|inf(?:inity)?|nan)$/i;
+
+function pythonFloat(value: unknown, errorMessage: string): number {
+  if (typeof value === "number") return value;
+  if (typeof value === "boolean") return value ? 1 : 0;
+  if (typeof value !== "string") throw new TypeError(errorMessage);
+
+  const text = value.trim();
+  if (!PYTHON_FLOAT_PATTERN.test(text)) throw new Error(errorMessage);
+  if (/^[+-]?nan$/i.test(text)) return Number.NaN;
+  if (/^[+-]?inf(?:inity)?$/i.test(text)) return text.startsWith("-") ? -Infinity : Infinity;
+  return Number(text.replace(/_/g, ""));
+}
+
+function defaultIfUndefined<T>(value: T | undefined, fallback: T): T {
+  return value === undefined ? fallback : value;
+}
+
+/** Accept the scalar seed forms accepted by `numpy.random.default_rng`. */
+function pythonSeed(value: unknown): number {
+  // Python's `None` requests fresh entropy rather than the default fixed seed.
+  if (value === null) return Math.floor(Math.random() * 0x1_0000_0000);
+  if (typeof value === "boolean") return value ? 1 : 0;
+  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value)) {
+    throw new TypeError("seed must be a nonnegative integer or null");
+  }
+  if (value < 0) throw new Error("seed must be a nonnegative integer or null");
+  return value;
+}
 
 /** Options for {@link thompson}. */
 export interface ThompsonOptions extends BaseRankOptions {
@@ -30,19 +61,29 @@ export interface ThompsonOptions extends BaseRankOptions {
 
 /** Rank models by Thompson-sampling posterior expected rank. */
 export function thompson(R: TensorInput, options: ThompsonOptions = {}): RankResult {
-  const method = options.method ?? "competition";
-  const nSamples = options.nSamples ?? 10000;
-  const priorAlpha = options.priorAlpha ?? 1;
-  const priorBeta = options.priorBeta ?? 1;
-  const seed = options.seed ?? 42;
-  if (!Number.isInteger(nSamples) || nSamples < 1) {
+  const method = defaultIfUndefined(options.method, "competition");
+  const tensor = validateInput(R);
+
+  const nSamples = defaultIfUndefined(options.nSamples, 10000);
+  if (typeof nSamples !== "number" || !Number.isInteger(nSamples)) {
+    throw new TypeError(`n_samples must be an integer, got ${String(nSamples)}`);
+  }
+  if (nSamples < 1) {
     throw new Error(`n_samples must be >= 1, got ${nSamples}`);
   }
+  const priorAlpha = pythonFloat(
+    defaultIfUndefined(options.priorAlpha, 1),
+    "prior_alpha must be > 0 and finite.",
+  );
   if (!Number.isFinite(priorAlpha) || priorAlpha <= 0) throw new Error("prior_alpha must be > 0 and finite.");
+  const priorBeta = pythonFloat(
+    defaultIfUndefined(options.priorBeta, 1),
+    "prior_beta must be > 0 and finite.",
+  );
   if (!Number.isFinite(priorBeta) || priorBeta <= 0) throw new Error("prior_beta must be > 0 and finite.");
 
-  const tensor = validateInput(R);
   const [L, M, N] = shape3(tensor);
+  const seed = pythonSeed(defaultIfUndefined(options.seed, 42));
   const rng = new SeededRng(seed);
 
   const successes = tensor.map((mat) => {
@@ -70,7 +111,10 @@ export function thompson(R: TensorInput, options: ThompsonOptions = {}): RankRes
     );
     for (let p = 0; p < L; p++) rankSums[order[p]!]! += p + 1;
   }
-  const scores = rankSums.map((s) => -s / nSamples);
+  const scores = averageEquivalentScores(
+    rankSums.map((s) => -s / nSamples),
+    postAlphas.map((alpha, index) => [alpha, postBetas[index]!]),
+  );
   return { ranking: rankScores(scores, method), scores };
 }
 
@@ -84,17 +128,27 @@ export interface BayesianMcmcOptions extends BaseRankOptions {
 
 /** Rank models via Bayesian Bradley-Terry posterior means from MCMC. */
 export function bayesianMcmc(R: TensorInput, options: BayesianMcmcOptions = {}): RankResult {
-  const method = options.method ?? "competition";
-  const nSamples = options.nSamples ?? 5000;
-  const burnin = options.burnin ?? 1000;
-  const priorVar = options.priorVar ?? 1;
-  const seed = options.seed ?? 42;
-  if (!Number.isInteger(nSamples) || nSamples < 1) throw new Error(`n_samples must be >= 1, got ${nSamples}`);
-  if (!Number.isInteger(burnin) || burnin < 0) throw new Error(`burnin must be >= 0, got ${burnin}`);
+  const method = defaultIfUndefined(options.method, "competition");
+  const tensor = validateInput(R);
+
+  const nSamples = defaultIfUndefined(options.nSamples, 5000);
+  if (typeof nSamples !== "number" || !Number.isInteger(nSamples)) {
+    throw new TypeError(`n_samples must be an integer, got ${String(nSamples)}`);
+  }
+  if (nSamples < 1) throw new Error(`n_samples must be >= 1, got ${nSamples}`);
+  const burnin = defaultIfUndefined(options.burnin, 1000);
+  if (typeof burnin !== "number" || !Number.isInteger(burnin)) {
+    throw new TypeError(`burnin must be an integer, got ${String(burnin)}`);
+  }
+  if (burnin < 0) throw new Error(`burnin must be >= 0, got ${burnin}`);
+  const priorVar = pythonFloat(
+    defaultIfUndefined(options.priorVar, 1),
+    "prior_var must be > 0 and finite.",
+  );
   if (!Number.isFinite(priorVar) || priorVar <= 0) throw new Error("prior_var must be > 0 and finite.");
 
-  const tensor = validateInput(R);
   const [L] = shape3(tensor);
+  const seed = pythonSeed(defaultIfUndefined(options.seed, 42));
   const rng = new SeededRng(seed);
   const wins = buildPairwiseWins(tensor);
 
@@ -145,8 +199,9 @@ export function bayesianMcmc(R: TensorInput, options: BayesianMcmcOptions = {}):
     }
   }
 
-  const scores = new Array<number>(L).fill(0);
+  let scores = new Array<number>(L).fill(0);
   for (const s of samples) for (let i = 0; i < L; i++) scores[i]! += s[i]!;
   for (let i = 0; i < L; i++) scores[i]! /= samples.length;
+  scores = averageEquivalentScores(scores, tensor);
   return { ranking: rankScores(scores, method), scores };
 }

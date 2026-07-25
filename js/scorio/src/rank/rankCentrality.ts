@@ -8,10 +8,10 @@
 
 import { matTVec, l1Diff } from "./internal/linalg.js";
 import { rankScores } from "./internal/rankScores.js";
-import { validatePositiveFloat, validatePositiveInt } from "./internal/validate.js";
 import {
   buildPairwiseCounts,
   buildPairwiseWins,
+  isStronglyConnected,
   shape3,
   validateInput,
   zeros2,
@@ -20,6 +20,37 @@ import {
 import type { BaseRankOptions, RankResult } from "./internal/result.js";
 
 const sum = (a: readonly number[]): number => a.reduce((s, v) => s + v, 0);
+
+const PYTHON_FLOAT_PATTERN = /^[+-]?(?:(?:(?:\d(?:_?\d)*(?:\.(?:\d(?:_?\d)*)?)?|\.\d(?:_?\d)*)(?:[eE][+-]?\d(?:_?\d)*)?)|inf(?:inity)?|nan)$/i;
+
+function pythonFloat(value: unknown, errorMessage: string): number {
+  if (typeof value === "number") return value;
+  if (typeof value === "boolean") return value ? 1 : 0;
+  if (typeof value !== "string") throw new TypeError(errorMessage);
+
+  const text = value.trim();
+  if (!PYTHON_FLOAT_PATTERN.test(text)) throw new Error(errorMessage);
+  if (/^[+-]?nan$/i.test(text)) return Number.NaN;
+  if (/^[+-]?inf(?:inity)?$/i.test(text)) return text.startsWith("-") ? -Infinity : Infinity;
+  return Number(text.replace(/_/g, ""));
+}
+
+function defaultIfUndefined<T>(value: T | undefined, fallback: T): T {
+  return value === undefined ? fallback : value;
+}
+
+function validateMaxIter(value: unknown): number {
+  // Unlike the other Python rank validators, rank_centrality's `isinstance`
+  // guard admits the built-in bool subclass of int.
+  const normalized = typeof value === "boolean" ? (value ? 1 : 0) : value;
+  if (typeof normalized !== "number" || !Number.isInteger(normalized)) {
+    throw new TypeError(`max_iter must be an integer, got ${String(value)}`);
+  }
+  if (normalized < 1) {
+    throw new Error(`max_iter must be >= 1, got ${normalized}`);
+  }
+  return normalized;
+}
 
 /** Options for {@link rankCentrality}. */
 export interface RankCentralityOptions extends BaseRankOptions {
@@ -31,24 +62,6 @@ export interface RankCentralityOptions extends BaseRankOptions {
   teleport?: number;
   maxIter?: number;
   tol?: number;
-}
-
-function isConnected(adj: boolean[][]): boolean {
-  const n = adj.length;
-  if (n === 0) return true;
-  const seen = new Array<boolean>(n).fill(false);
-  const stack = [0];
-  seen[0] = true;
-  while (stack.length) {
-    const i = stack.pop()!;
-    for (let j = 0; j < n; j++) {
-      if (adj[i]![j] && !seen[j]) {
-        seen[j] = true;
-        stack.push(j);
-      }
-    }
-  }
-  return seen.every((x) => x);
 }
 
 function stationaryPower(P: number[][], maxIter: number, tol: number): number[] {
@@ -71,22 +84,36 @@ export function rankCentrality(
   R: TensorInput,
   options: RankCentralityOptions = {},
 ): RankResult {
-  const method = options.method ?? "competition";
-  const tieHandling = options.tieHandling ?? "half";
-  const smoothing = options.smoothing ?? 0;
-  const teleport = options.teleport ?? 0;
-  const maxIter = validatePositiveInt("max_iter", options.maxIter ?? 10000);
-  const tol = validatePositiveFloat("tol", options.tol ?? 1e-12);
+  const method = defaultIfUndefined(options.method, "competition");
+  const tensor = validateInput(R);
+  const [L] = shape3(tensor);
+
+  const tieHandling = String(
+    defaultIfUndefined(options.tieHandling, "half"),
+  );
   if (tieHandling !== "ignore" && tieHandling !== "half") {
     throw new Error('tie_handling must be "ignore" or "half"');
   }
+  const smoothing = pythonFloat(
+    defaultIfUndefined(options.smoothing, 0),
+    "smoothing must be >= 0",
+  );
   if (!Number.isFinite(smoothing) || smoothing < 0) throw new Error("smoothing must be >= 0");
+  const teleport = pythonFloat(
+    defaultIfUndefined(options.teleport, 0),
+    "teleport must be in [0, 1)",
+  );
   if (!Number.isFinite(teleport) || !(teleport >= 0 && teleport < 1)) {
     throw new Error("teleport must be in [0, 1)");
   }
-
-  const tensor = validateInput(R);
-  const [L] = shape3(tensor);
+  const maxIter = validateMaxIter(defaultIfUndefined(options.maxIter, 10000));
+  const tol = pythonFloat(
+    defaultIfUndefined(options.tol, 1e-12),
+    "tol must be a positive finite scalar",
+  );
+  if (!Number.isFinite(tol) || tol <= 0) {
+    throw new Error(`tol must be a positive finite scalar, got ${tol}`);
+  }
 
   let wins: number[][];
   if (tieHandling === "ignore") {
@@ -111,15 +138,29 @@ export function rankCentrality(
     dMax = Math.max(dMax, deg);
   }
 
+  const pJi = zeros2(L, L);
+  for (let i = 0; i < L; i++) {
+    for (let j = 0; j < L; j++) {
+      if (adj[i]![j]) pJi[i]![j] = winsS[j]![i]! / denom[i]![j]!;
+    }
+  }
+
+  if (
+    teleport === 0 &&
+    smoothing === 0 &&
+    tieHandling === "ignore" &&
+    !isStronglyConnected(pJi.map((row) => row.map((value) => value > 0)))
+  ) {
+    throw new Error(
+      "Rank Centrality requires strongly connected positive transition support " +
+        "when tie_handling='ignore'; use teleport>0, smoothing>0, or " +
+        "tie_handling='half'.",
+    );
+  }
+
   if (dMax === 0) {
     const scores = new Array<number>(L).fill(1 / L);
     return { ranking: rankScores(scores, method), scores };
-  }
-  if (teleport === 0 && smoothing === 0 && tieHandling === "ignore" && !isConnected(adj)) {
-    throw new Error(
-      "Rank Centrality requires a connected comparison graph; " +
-        "use teleport>0, smoothing>0, or tie_handling='half'.",
-    );
   }
 
   // P[i][j] = (1/d_max) · p̂_{j,i} on edges; P[i][i] = 1 - Σ_{j≠i} P[i][j].
@@ -127,8 +168,7 @@ export function rankCentrality(
   for (let i = 0; i < L; i++) {
     for (let j = 0; j < L; j++) {
       if (!adj[i]![j]) continue;
-      const pJi = winsS[j]![i]! / denom[i]![j]!;
-      P[i]![j] = pJi / dMax;
+      P[i]![j] = pJi[i]![j]! / dMax;
     }
   }
   for (let i = 0; i < L; i++) {

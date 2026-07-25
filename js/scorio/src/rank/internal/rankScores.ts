@@ -125,7 +125,7 @@ export function rankScores(
   method: RankMethod = "competition",
   tol = 1e-12,
 ): number[] {
-  return rankScoresAll(scores, tol)[method];
+  return rankScoresAll(scores, tol)[asRankMethod(method)];
 }
 
 /** Validate and normalize a user-supplied ranking method string. */

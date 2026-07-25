@@ -12,15 +12,43 @@ import { clip } from "./internal/special.js";
 import { rankScores } from "./internal/rankScores.js";
 import { validatePositiveInt } from "./internal/validate.js";
 import {
+  averageEquivalentScores,
   buildPairwiseCounts,
   buildPairwiseWins,
+  isStronglyConnected,
   validateInput,
   type TensorInput,
 } from "./internal/tensor.js";
-import { GaussianPrior, coercePrior, type Prior } from "./priors.js";
+import {
+  CauchyPrior,
+  GaussianPrior,
+  LaplacePrior,
+  UniformPrior,
+  coercePrior,
+  type Prior,
+} from "./priors.js";
 import type { BaseRankOptions, RankResult } from "./internal/result.js";
 
 const sum = (a: readonly number[]): number => a.reduce((s, v) => s + v, 0);
+const defaultIfUndefined = <T>(value: T | undefined, fallback: T): T =>
+  value === undefined ? fallback : value;
+
+function coercePythonFloat(value: unknown, name: string): number {
+  if (typeof value === "number") return value;
+  if (typeof value === "boolean") return value ? 1 : 0;
+  if (typeof value === "string" && value.trim().length > 0) {
+    const normalized = value.trim().replace(/(?<=\d)_(?=\d)/g, "");
+    if (/^[+-]?(?:inf(?:inity)?)$/i.test(normalized)) {
+      return normalized.startsWith("-") ? -Infinity : Infinity;
+    }
+    if (/^[+-]?nan$/i.test(normalized)) return NaN;
+    if (/^[+-]?(?:(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)$/i.test(normalized)) {
+      return Number(normalized);
+    }
+  }
+  throw new TypeError(`${name} must be convertible to a float`);
+}
+
 const mean = (a: readonly number[]): number => sum(a) / a.length;
 const center = (a: readonly number[]): number[] => {
   const m = mean(a);
@@ -41,6 +69,35 @@ function logPiInit(wins: number[][]): number[] {
 
 function isZeroMeanGaussian(prior: Prior): boolean {
   return prior instanceof GaussianPrior && prior.mean === 0;
+}
+
+function isExchangeablePrior(prior: Prior): boolean {
+  return (
+    prior.constructor === GaussianPrior ||
+    prior.constructor === LaplacePrior ||
+    prior.constructor === CauchyPrior ||
+    prior.constructor === UniformPrior
+  );
+}
+
+function requireOptimizerSuccess(
+  result: { success: boolean; iterations: number },
+  modelName: string,
+): void {
+  if (!result.success) {
+    throw new Error(
+      `${modelName} optimization failed after ${result.iterations} iterations`,
+    );
+  }
+}
+
+function positiveAdjacency(
+  wins: number[][],
+  ties?: number[][],
+): boolean[][] {
+  return wins.map((row, i) =>
+    row.map((value, j) => value > 0 || (ties?.[i]?.[j] ?? 0) > 0),
+  );
 }
 
 /** Options for the MAP variants. */
@@ -76,11 +133,18 @@ function btNll(wins: number[][], logPi: readonly number[]): number {
 function estimateBtMl(wins: number[][], maxIter: number): number[] {
   const n = wins.length;
   if (sum(rowSums(wins)) <= 0) return new Array<number>(n).fill(1);
+  if (!isStronglyConnected(positiveAdjacency(wins))) {
+    throw new Error(
+      "Bradley-Terry has no finite maximum-likelihood estimate because the directed win graph is not strongly connected; use bradley_terry_map for a regularized estimate.",
+    );
+  }
   const res = minimize((x) => btNll(wins, x), logPiInit(wins), { maxIter });
+  requireOptimizerSuccess(res, "bradley_terry");
   return finalizeStrengths(res.x);
 }
 
 function estimateBtMap(wins: number[][], prior: Prior, maxIter: number): number[] {
+  if (prior.constructor === UniformPrior) return estimateBtMl(wins, maxIter);
   const n = wins.length;
   const noDecisive = sum(rowSums(wins)) <= 0;
   if (noDecisive && isZeroMeanGaussian(prior)) return new Array<number>(n).fill(1);
@@ -89,6 +153,7 @@ function estimateBtMap(wins: number[][], prior: Prior, maxIter: number): number[
     logPiInit(wins),
     { maxIter },
   );
+  requireOptimizerSuccess(res, "bradley_terry_map");
   const scores = finalizeStrengths(res.x);
   if (noDecisive && Math.max(...scores) - Math.min(...scores) <= 1e-5) {
     return new Array<number>(n).fill(1);
@@ -98,18 +163,32 @@ function estimateBtMap(wins: number[][], prior: Prior, maxIter: number): number[
 
 /** Rank models with Bradley-Terry maximum-likelihood strengths. */
 export function bradleyTerry(R: TensorInput, options: BTMlOptions = {}): RankResult {
-  const method = options.method ?? "competition";
-  const wins = buildPairwiseWins(validateInput(R));
-  const scores = estimateBtMl(wins, validatePositiveInt("max_iter", options.maxIter ?? 500));
+  const method = defaultIfUndefined(options.method, "competition");
+  const tensor = validateInput(R);
+  const maxIter = validatePositiveInt(
+    "max_iter",
+    defaultIfUndefined(options.maxIter, 500),
+  );
+  const wins = buildPairwiseWins(tensor);
+  const scores = averageEquivalentScores(
+    estimateBtMl(wins, maxIter),
+    tensor,
+  );
   return { ranking: rankScores(scores, method), scores };
 }
 
 /** Rank models with Bradley-Terry MAP estimation. */
 export function bradleyTerryMap(R: TensorInput, options: BTMapOptions = {}): RankResult {
-  const method = options.method ?? "competition";
-  const prior = coercePrior(options.prior ?? 1);
-  const wins = buildPairwiseWins(validateInput(R));
-  const scores = estimateBtMap(wins, prior, validatePositiveInt("max_iter", options.maxIter ?? 500));
+  const method = defaultIfUndefined(options.method, "competition");
+  const tensor = validateInput(R);
+  const maxIter = validatePositiveInt(
+    "max_iter",
+    defaultIfUndefined(options.maxIter, 500),
+  );
+  const prior = coercePrior(defaultIfUndefined(options.prior, 1));
+  const wins = buildPairwiseWins(tensor);
+  let scores = estimateBtMap(wins, prior, maxIter);
+  if (isExchangeablePrior(prior)) scores = averageEquivalentScores(scores, tensor);
   return { ranking: rankScores(scores, method), scores };
 }
 
@@ -155,6 +234,13 @@ function estimateDavidson(
   const noDecisive = sum(rowSums(wins)) <= 0;
   if (prior === null) {
     if (noDecisive) return new Array<number>(n).fill(1);
+    if (!isStronglyConnected(positiveAdjacency(wins, ties))) {
+      throw new Error(
+        "Bradley-Terry-Davidson has no finite maximum-likelihood strength estimate because its win/tie graph is not strongly connected; use bradley_terry_davidson_map with a proper prior.",
+      );
+    }
+  } else if (prior.constructor === UniformPrior) {
+    return estimateDavidson(wins, ties, null, maxIter);
   } else if (noDecisive && isZeroMeanGaussian(prior)) {
     return new Array<number>(n).fill(1);
   }
@@ -165,6 +251,10 @@ function estimateDavidson(
       (prior ? prior.penalty(center(x.slice(0, n))) : 0),
     init,
     { maxIter },
+  );
+  requireOptimizerSuccess(
+    res,
+    prior === null ? "bradley_terry_davidson" : "bradley_terry_davidson_map",
   );
   const scores = finalizeStrengths(res.x.slice(0, n));
   if (prior !== null && noDecisive && Math.max(...scores) - Math.min(...scores) <= 1e-5) {
@@ -178,9 +268,22 @@ export function bradleyTerryDavidson(
   R: TensorInput,
   options: BTMlOptions = {},
 ): RankResult {
-  const method = options.method ?? "competition";
-  const { wins, ties } = buildPairwiseCounts(validateInput(R));
-  const scores = estimateDavidson(wins, ties, null, validatePositiveInt("max_iter", options.maxIter ?? 500));
+  const method = defaultIfUndefined(options.method, "competition");
+  const tensor = validateInput(R);
+  const maxIter = validatePositiveInt(
+    "max_iter",
+    defaultIfUndefined(options.maxIter, 500),
+  );
+  const { wins, ties } = buildPairwiseCounts(tensor);
+  const scores = averageEquivalentScores(
+    estimateDavidson(
+      wins,
+      ties,
+      null,
+      maxIter,
+    ),
+    tensor,
+  );
   return { ranking: rankScores(scores, method), scores };
 }
 
@@ -189,17 +292,26 @@ export function bradleyTerryDavidsonMap(
   R: TensorInput,
   options: BTMapOptions = {},
 ): RankResult {
-  const method = options.method ?? "competition";
-  const prior = coercePrior(options.prior ?? 1);
-  const { wins, ties } = buildPairwiseCounts(validateInput(R));
-  const scores = estimateDavidson(wins, ties, prior, validatePositiveInt("max_iter", options.maxIter ?? 500));
+  const method = defaultIfUndefined(options.method, "competition");
+  const tensor = validateInput(R);
+  const maxIter = validatePositiveInt(
+    "max_iter",
+    defaultIfUndefined(options.maxIter, 500),
+  );
+  const prior = coercePrior(defaultIfUndefined(options.prior, 1));
+  const { wins, ties } = buildPairwiseCounts(tensor);
+  let scores = estimateDavidson(wins, ties, prior, maxIter);
+  if (isExchangeablePrior(prior)) scores = averageEquivalentScores(scores, tensor);
   return { ranking: rankScores(scores, method), scores };
 }
 
 // --- Rao-Kupper (ML / MAP) ---------------------------------------------------
 
-function validateTieStrength(tieStrength: number): number {
-  const kappa = Number(tieStrength);
+function validateTieStrength(tieStrength: unknown): number {
+  if (typeof tieStrength === "boolean") {
+    throw new TypeError("tie_strength must be a finite scalar >= 1.0, got bool");
+  }
+  const kappa = coercePythonFloat(tieStrength, "tie_strength");
   if (!Number.isFinite(kappa)) throw new Error("tie_strength must be finite.");
   if (kappa < 1) throw new Error("tie_strength must be >= 1.0 for Rao-Kupper");
   return kappa;
@@ -264,6 +376,13 @@ function estimateRaoKupper(
   const noDecisive = sum(rowSums(wins)) <= 0;
   if (prior === null) {
     if (noDecisive) return new Array<number>(n).fill(1);
+    if (!isStronglyConnected(positiveAdjacency(wins, ties))) {
+      throw new Error(
+        "Rao-Kupper has no finite maximum-likelihood strength estimate because its win/tie graph is not strongly connected; use rao_kupper_map with a proper prior.",
+      );
+    }
+  } else if (prior.constructor === UniformPrior) {
+    return estimateRaoKupper(wins, ties, kappa, null, maxIter);
   } else if (noDecisive && isZeroMeanGaussian(prior)) {
     return new Array<number>(n).fill(1);
   }
@@ -274,6 +393,7 @@ function estimateRaoKupper(
     init,
     { maxIter },
   );
+  requireOptimizerSuccess(res, prior === null ? "rao_kupper" : "rao_kupper_map");
   const scores = finalizeStrengths(res.x);
   if (prior !== null && noDecisive && Math.max(...scores) - Math.min(...scores) <= 1e-5) {
     return new Array<number>(n).fill(1);
@@ -294,10 +414,26 @@ export interface RaoKupperMapOptions extends BTMapOptions {
 
 /** Rank models with the Rao-Kupper tie model (ML). */
 export function raoKupper(R: TensorInput, options: RaoKupperOptions = {}): RankResult {
-  const method = options.method ?? "competition";
-  const kappa = validateTieStrength(options.tieStrength ?? 1.1);
-  const { wins, ties } = buildPairwiseCounts(validateInput(R));
-  const scores = estimateRaoKupper(wins, ties, kappa, null, validatePositiveInt("max_iter", options.maxIter ?? 500));
+  const method = defaultIfUndefined(options.method, "competition");
+  const tensor = validateInput(R);
+  const maxIter = validatePositiveInt(
+    "max_iter",
+    defaultIfUndefined(options.maxIter, 500),
+  );
+  const kappa = validateTieStrength(
+    defaultIfUndefined(options.tieStrength, 1.1),
+  );
+  const { wins, ties } = buildPairwiseCounts(tensor);
+  const scores = averageEquivalentScores(
+    estimateRaoKupper(
+      wins,
+      ties,
+      kappa,
+      null,
+      maxIter,
+    ),
+    tensor,
+  );
   return { ranking: rankScores(scores, method), scores };
 }
 
@@ -306,10 +442,18 @@ export function raoKupperMap(
   R: TensorInput,
   options: RaoKupperMapOptions = {},
 ): RankResult {
-  const method = options.method ?? "competition";
-  const kappa = validateTieStrength(options.tieStrength ?? 1.1);
-  const prior = coercePrior(options.prior ?? 1);
-  const { wins, ties } = buildPairwiseCounts(validateInput(R));
-  const scores = estimateRaoKupper(wins, ties, kappa, prior, validatePositiveInt("max_iter", options.maxIter ?? 500));
+  const method = defaultIfUndefined(options.method, "competition");
+  const tensor = validateInput(R);
+  const maxIter = validatePositiveInt(
+    "max_iter",
+    defaultIfUndefined(options.maxIter, 500),
+  );
+  const kappa = validateTieStrength(
+    defaultIfUndefined(options.tieStrength, 1.1),
+  );
+  const prior = coercePrior(defaultIfUndefined(options.prior, 1));
+  const { wins, ties } = buildPairwiseCounts(tensor);
+  let scores = estimateRaoKupper(wins, ties, kappa, prior, maxIter);
+  if (isExchangeablePrior(prior)) scores = averageEquivalentScores(scores, tensor);
   return { ranking: rankScores(scores, method), scores };
 }
