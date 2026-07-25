@@ -16,23 +16,23 @@ EmpiricalPrior
 
 ### Bayes
 
-```@docs; canonical=false
-bayes(::AbstractArray{<:Integer, 3}, ::Any; R0, quantile, method, return_scores)
+```@docs
+Scorio.Rank.bayes
 ```
 
 ### Avg
 
-```@docs; canonical=false
-avg(::Any; method, return_scores)
+```@docs
+Scorio.Rank.avg
 ```
 
 ### Pass@k Family
 
 ```@docs
-pass_at_k(::AbstractArray{<:Integer, 3}, ::Any; method, return_scores)
-pass_hat_k(::AbstractArray{<:Integer, 3}, ::Any; method, return_scores)
-g_pass_at_k_tau(::AbstractArray{<:Integer, 3}, ::Any, ::Any; method, return_scores)
-mg_pass_at_k(::AbstractArray{<:Integer, 3}, ::Any; method, return_scores)
+Scorio.Rank.pass_at_k
+Scorio.Rank.pass_hat_k
+Scorio.Rank.g_pass_at_k_tau
+Scorio.Rank.mg_pass_at_k
 ```
 
 ## Pointwise Methods

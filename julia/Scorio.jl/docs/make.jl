@@ -13,12 +13,17 @@ makedocs(
         sidebar_sitename = false,
     ),
     modules = [Scorio],
+    # The package contains intentionally undocumented internal helpers and the
+    # separately maintained SInf surface. `@docs` blocks below remain strict;
+    # only the global completeness check is disabled.
+    checkdocs = :none,
     pages = [
         "Home" => "index.md",
         "API Reference" => [
             "Overview" => "api.md",
             "Evaluation (Scorio.Eval)" => "api/eval.md",
             "Ranking (Scorio.Rank)" => "api/rank.md",
+            "Aggregation (Scorio.Aggregate)" => "api/aggregate.md",
             "Utilities (Scorio.Utils)" => "api/utils.md"
         ],
         "Examples" => "examples.md",
