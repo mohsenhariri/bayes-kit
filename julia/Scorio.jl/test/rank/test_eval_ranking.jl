@@ -16,6 +16,13 @@ using Scorio
 
         @test scores ≈ expected_scores
         @test ranking == Scorio.rank_scores(expected_scores)["competition"]
+
+        nested_R = [
+            [collect(R[l, i, :]) for i in axes(R, 2)] for l in axes(R, 1)
+        ]
+        nested_ranking, nested_scores = Scorio.Rank.avg(nested_R; return_scores=true)
+        @test nested_scores ≈ scores
+        @test nested_ranking == ranking
     end
 
     @testset "bayes rank wrapper with R0 variants and quantile" begin
@@ -38,6 +45,16 @@ using Scorio
         end
         @test scores_shared ≈ expected_shared
         @test ranking_shared == Scorio.rank_scores(expected_shared)["competition"]
+
+        nested_R0 = [collect(row) for row in eachrow(R0_shared)]
+        nested_ranking, nested_scores = Scorio.Rank.bayes(
+            R,
+            w;
+            R0=nested_R0,
+            return_scores=true,
+        )
+        @test nested_scores ≈ scores_shared
+        @test nested_ranking == ranking_shared
 
         R0_per = zeros(Int, 2, 3, 2)
         R0_per[1, :, :] = R0_shared

@@ -22,12 +22,12 @@ end
 function _rank_arrays_from_grouped(
     grouped_sorted::Vector{Float64},
     order::Vector{Int},
-)::Dict{String, Vector{Float64}}
+)::Dict{String,Any}
     n = length(grouped_sorted)
 
-    competition_sorted = zeros(Float64, n)
-    competition_max_sorted = zeros(Float64, n)
-    dense_sorted = zeros(Float64, n)
+    competition_sorted = zeros(Int, n)
+    competition_max_sorted = zeros(Int, n)
+    dense_sorted = zeros(Int, n)
     avg_sorted = zeros(Float64, n)
 
     i = 1
@@ -38,15 +38,14 @@ function _rank_arrays_from_grouped(
             j += 1
         end
 
-        min_rank = Float64(i)
-        max_rank = Float64(j)
-        avg_rank = (min_rank + max_rank) / 2.0
-        dense_rank_float = Float64(dense_rank)
+        min_rank = i
+        max_rank = j
+        avg_rank = (i + j) / 2.0
 
         for t in i:j
             competition_sorted[t] = min_rank
             competition_max_sorted[t] = max_rank
-            dense_sorted[t] = dense_rank_float
+            dense_sorted[t] = dense_rank
             avg_sorted[t] = avg_rank
         end
 
@@ -67,7 +66,7 @@ function _rank_arrays_from_grouped(
         avg[idx] = avg_sorted[i]
     end
 
-    return Dict(
+    return Dict{String,Any}(
         "competition" => competition,
         "competition_max" => competition_max,
         "dense" => dense,
@@ -78,15 +77,15 @@ end
 """
     rank_scores(scores_in_id_order; tol=1e-12, sigmas_in_id_order=nothing,
                 confidence=0.95, ci_tie_method="zscore_adjacent")
-        -> Dict{String, Vector{Float64}}
+        -> Dict{String, Any}
 
 Convert scores into rank arrays under multiple tie-handling conventions.
 
 Returns base keys:
-- `"competition"`: min-rank competition (1,2,2,4,...)
-- `"competition_max"`: max-rank competition
-- `"dense"`: dense ranking
-- `"avg"`: fractional/average ranking
+- `"competition"`: min-rank competition (1,2,2,4,...) as `Vector{Int}`
+- `"competition_max"`: max-rank competition as `Vector{Int}`
+- `"dense"`: dense ranking as `Vector{Int}`
+- `"avg"`: fractional/average ranking as `Vector{Float64}`
 
 If `sigmas_in_id_order` is provided, uncertainty-aware tie grouping is applied
 between adjacent sorted items and the following keys are added:
@@ -98,7 +97,7 @@ function rank_scores(
     sigmas_in_id_order=nothing,
     confidence::Real=0.95,
     ci_tie_method::AbstractString="zscore_adjacent",
-)::Dict{String, Vector{Float64}}
+)::Dict{String,Any}
     scores = _as_float_vector(scores_in_id_order, "scores_in_id_order")
     order = sortperm(scores, rev=true)
     sorted_scores = scores[order]

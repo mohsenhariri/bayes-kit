@@ -30,6 +30,18 @@ using Scorio
         prior = Scorio.Rank.EmpiricalPrior(R_small; var=1.0)
         @test length(prior.prior_mean) == size(R_small, 1)
         @test sum(prior.prior_mean) ≈ 0.0 atol = 1e-10
+
+        positional = Scorio.Rank.EmpiricalPrior(R_small, 1.0, 1e-6)
+        @test positional.prior_mean ≈ prior.prior_mean
+        @test positional.penalty(zeros(size(R_small, 1))) ==
+              Scorio.penalty(positional, zeros(size(R_small, 1)))
+
+        nested_R = [
+            [collect(R_small[l, i, :]) for i in axes(R_small, 2)] for
+            l in axes(R_small, 1)
+        ]
+        nested = Scorio.Rank.EmpiricalPrior(nested_R; var=1.0)
+        @test nested.prior_mean ≈ prior.prior_mean
     end
 
     @testset "Empirical prior theta length validation" begin

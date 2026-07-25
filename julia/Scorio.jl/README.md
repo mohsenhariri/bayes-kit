@@ -39,8 +39,9 @@ Pkg.develop(path="/path/to/Scorio.jl")
 - **`R0`** (optional): `M × D` integer matrix of prior outcomes (same category set as `R`)
 - **Returns**: posterior estimate `mu` of the rubric-weighted performance and its uncertainty `sigma`.
 
-#### `avg(R) -> Float64`
-- Returns the naive mean of elements in `R`. For binary accuracy, encode incorrect=0, correct=1.
+#### `avg(R, w=nothing) -> (mu::Float64, sigma::Float64)`
+- Returns the weighted average and Bayes-scaled uncertainty. For binary
+  accuracy, encode incorrect=0 and correct=1; categorical inputs require `w`.
 
 #### `pass_at_k(R, k) -> Float64`
 - Unbiased Pass@k estimator. Computes the probability that at least one of k randomly selected samples is correct, averaged over all M questions.
@@ -59,13 +60,31 @@ Pkg.develop(path="/path/to/Scorio.jl")
 
 ### Ranking Functions
 
-#### `elo()`
-- Not yet implemented. Placeholder for future ELO ranking functionality.
+The complete Python ranking surface is available under `Scorio.Rank`, including
+evaluation-based, pairwise, voting, IRT, graph, centrality, and listwise methods.
 
 ### Utility Functions
 
 #### `competition_ranks_from_scores(scores; tol=1e-12) -> Vector{Int}`
 - Computes competition ranks from scores, handling ties appropriately.
+
+### Aggregation Functions
+
+Test-time scaling APIs are namespaced under `Scorio.Aggregate` (short aliases
+`Scorio.Agg` and `Scorio.agg`). They include confidence signals, PRM reduction,
+Best-of-N and voting rules, and online stopping:
+
+```julia
+answers = ["A", "A", "B"]
+scores = [0.3, 0.4, 0.9]
+
+Scorio.Aggregate.majority_vote(answers)            # "A"
+Scorio.Aggregate.best_of_n(answers, scores)         # "B"
+Scorio.Aggregate.weighted_majority_vote(answers, scores)
+```
+
+Candidate indices returned with `return_index=true` match Python: they are
+0-based, with `-1` as the sentinel when no answer is valid.
 
 ## Usage Example
 
@@ -92,8 +111,8 @@ mu2, sigma2 = bayes(R, w)
 println("μ = $mu2, σ = $sigma2")  # Expected: μ ≈ 0.5625, σ ≈ 0.091998
 
 # Simple average
-accuracy = avg(R)
-println("Average: $accuracy")
+average, average_sigma = avg(R, w)
+println("Average: $average, uncertainty: $average_sigma")
 
 # Competition ranks
 scores = [0.95, 0.87, 0.87, 0.72, 0.65]

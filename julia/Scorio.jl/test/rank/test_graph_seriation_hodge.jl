@@ -42,6 +42,20 @@ using Scorio
         @test sum(equilibrium) ≈ 1.0 atol = 1e-10
     end
 
+    @testset "pagerank sequence teleport" begin
+        _, vector_scores = Scorio.Rank.pagerank(
+            R_small;
+            teleport=fill(0.25, 4),
+            return_scores=true,
+        )
+        _, tuple_scores = Scorio.Rank.pagerank(
+            R_small;
+            teleport=(0.25, 0.25, 0.25, 0.25),
+            return_scores=true,
+        )
+        @test tuple_scores ≈ vector_scores
+    end
+
     @testset "hodge return_diagnostics branch" begin
         ranking, scores, diagnostics = Scorio.Rank.hodge_rank(
             R_small;

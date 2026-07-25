@@ -1,7 +1,9 @@
 """
-Scorio ranking API scaffold.
+Ranking methods matching Python's `scorio.rank` public API.
 
 """
+
+import LBFGSB
 
 include("rank/types.jl")
 include("rank/base.jl")

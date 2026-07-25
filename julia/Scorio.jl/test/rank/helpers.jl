@@ -62,6 +62,15 @@ function equal_information_R()::Array{Int, 3}
     return R
 end
 
+function optimizer_parity_R()::Array{Int, 3}
+    R = zeros(Int, 4, 4, 3)
+    R[1, :, :] .= [1 0 1; 1 1 0; 0 1 0; 1 0 0]
+    R[2, :, :] .= [0 1 0; 1 0 0; 0 0 1; 1 1 0]
+    R[3, :, :] .= [1 1 0; 0 0 1; 1 0 1; 0 0 1]
+    R[4, :, :] .= [0 0 1; 0 1 1; 1 1 0; 0 1 0]
+    return R
+end
+
 function multiclass_rank_data()
     data = top_p_task_aime25()
     # Python: R = (data[0:3, :10, :7] + data[3:6, :10, :7]).astype(int)
