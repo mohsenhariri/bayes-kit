@@ -13,7 +13,12 @@
 
 import { gammaln, comb, betaRatio } from "./internal/math.js";
 import { normalCredibleInterval, type Bounds } from "./internal/ci.js";
-import { asMatrix, validateMatrixRange, type Matrix } from "./internal/validate.js";
+import {
+  asMatrix,
+  asPriorMatrix,
+  validateMatrixRange,
+  type Matrix,
+} from "./internal/validate.js";
 import { bayesCi } from "./bayes.js";
 
 /** Per-row counts of the values `0..length-1` over a possibly-empty matrix. */
@@ -38,13 +43,13 @@ interface CategoricalInput {
 /** Normalize R, w, and R0 for weighted categorical metrics. */
 function prepareCategoricalInput(
   R: Matrix,
-  w?: readonly number[],
-  R0?: Matrix,
+  w?: readonly number[] | null,
+  R0?: Matrix | null,
 ): CategoricalInput {
   const Rm = asMatrix(R);
 
   let wv: number[];
-  if (w === undefined) {
+  if (w == null) {
     const seen = new Set<number>();
     for (const row of Rm) for (const v of row) seen.add(v);
     const isBinary = seen.size <= 2 && [...seen].every((v) => v === 0 || v === 1);
@@ -65,10 +70,10 @@ function prepareCategoricalInput(
   validateMatrixRange(Rm, 0, C, "R");
 
   let R0m: number[][];
-  if (R0 === undefined) {
+  if (R0 == null) {
     R0m = Rm.map(() => []);
   } else {
-    R0m = asMatrix(R0);
+    R0m = asPriorMatrix(R0, M);
     if (R0m.length !== M) {
       throw new Error("R0 must have the same number of rows (M) as R.");
     }
@@ -95,8 +100,8 @@ function uniqueLevels(wv: readonly number[]): { levels: number[]; inverse: numbe
 /** Grouped Dirichlet posterior parameters and the unique reward levels. */
 function groupedPosteriorParams(
   R: Matrix,
-  w?: readonly number[],
-  R0?: Matrix,
+  w?: readonly number[] | null,
+  R0?: Matrix | null,
 ): { gamma: number[][]; levels: number[] } {
   const { Rm, wv, R0m } = prepareCategoricalInput(R, w, R0);
   const C = wv.length - 1;
@@ -148,7 +153,7 @@ function dirichletNestedCumulativeMoment(
       (gammaln(total + 2.0 * k) - gammaln(total)),
   );
   let sum = t;
-  for (let r = 1; r <= k; r++) {
+  for (let r = 1; r < k + 1; r++) {
     t *= ((k - r + 1) / r) * ((a + k + r - 1) / (b + k - r));
     sum += t;
   }
@@ -172,7 +177,11 @@ function dirichletNestedCumulativeMoment(
  *          binary and `[0, 1]` is used.
  * @returns Average Max@k score across prompts.
  */
-export function maxAtK(R: Matrix, k: number, w?: readonly number[]): number {
+export function maxAtK(
+  R: Matrix,
+  k: number,
+  w?: readonly number[] | null,
+): number {
   const { Rm, wv } = prepareCategoricalInput(R, w);
   const N = Rm[0]!.length;
   validateK(N, k);
@@ -198,16 +207,16 @@ export function maxAtK(R: Matrix, k: number, w?: readonly number[]): number {
 function maxAtKBayes(
   R: Matrix,
   k: number,
-  w?: readonly number[],
-  R0?: Matrix,
+  w?: readonly number[] | null,
+  R0?: Matrix | null,
 ): { mu: number; sigma: number; levels: number[] } {
   const { gamma, levels } = groupedPosteriorParams(R, w, R0);
   const M = gamma.length;
   const L = gamma[0]!.length;
   const total = gamma[0]!.reduce((s, v) => s + v, 0);
 
-  if (k < 1 || !Number.isInteger(k)) {
-    throw new Error(`k must be an integer >= 1; got ${k}`);
+  if (k < 1) {
+    throw new Error(`k must be >= 1; got ${k}`);
   }
   // The posterior moments describe the latent distribution, so k is not
   // restricted by the observed sample size once the posterior is defined.
@@ -303,10 +312,10 @@ function maxAtKBayes(
 export function maxAtKCi(
   R: Matrix,
   k: number,
-  w?: readonly number[],
-  R0?: Matrix,
+  w?: readonly number[] | null,
+  R0?: Matrix | null,
   confidence = 0.95,
-  bounds?: Bounds,
+  bounds?: Bounds | null,
 ): [number, number, number, number] {
   if (k === 1) {
     return bayesCi(R, w, R0, confidence, bounds);
@@ -314,7 +323,7 @@ export function maxAtKCi(
 
   const { mu, sigma, levels } = maxAtKBayes(R, k, w, R0);
   const effectiveBounds: Bounds =
-    bounds === undefined
+    bounds == null
       ? [Math.min(...levels), Math.max(...levels)]
       : bounds;
   const [lo, hi] = normalCredibleInterval(mu, sigma, confidence, true, effectiveBounds);

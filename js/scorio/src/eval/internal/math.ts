@@ -50,6 +50,95 @@ export function comb(n: number, k: number): number {
   return Math.exp(gammaln(n + 1) - gammaln(k + 1) - gammaln(n - k + 1));
 }
 
+/** Natural logarithm of the binomial coefficient, with invalid choices at -Infinity. */
+export function logComb(n: number, k: number): number {
+  if (k < 0 || n < 0 || k > n) return -Infinity;
+  if (k === 0 || k === n) return 0.0;
+  const kk = Math.min(k, n - k);
+  return gammaln(n + 1) - gammaln(kk + 1) - gammaln(n - kk + 1);
+}
+
+function hypergeomSupport(
+  population: number,
+  successes: number,
+  draws: number,
+): [number, number] {
+  return [Math.max(0, draws - (population - successes)), Math.min(draws, successes)];
+}
+
+/** Log PMF for X ~ Hypergeometric(population, successes, draws). */
+export function logHypergeomPmf(
+  population: number,
+  successes: number,
+  draws: number,
+  observed: number,
+): number {
+  const [lo, hi] = hypergeomSupport(population, successes, draws);
+  if (observed < lo || observed > hi) return -Infinity;
+  return (
+    logComb(successes, observed) +
+    logComb(population - successes, draws - observed) -
+    logComb(population, draws)
+  );
+}
+
+/** PMF for X ~ Hypergeometric(population, successes, draws). */
+export function hypergeomPmf(
+  population: number,
+  successes: number,
+  draws: number,
+  observed: number,
+): number {
+  const logP = logHypergeomPmf(population, successes, draws, observed);
+  if (logP === -Infinity) return 0.0;
+  return Math.min(1.0, Math.max(0.0, Math.exp(logP)));
+}
+
+/** P(X >= minSuccesses) for a hypergeometric variate, summed in log space. */
+export function hypergeomSf(
+  population: number,
+  successes: number,
+  draws: number,
+  minSuccesses: number,
+): number {
+  const [lo, hi] = hypergeomSupport(population, successes, draws);
+  const start = Math.max(lo, minSuccesses);
+  if (start <= lo) return 1.0;
+  if (start > hi) return 0.0;
+
+  let maxLog = -Infinity;
+  const logs: number[] = [];
+  for (let observed = start; observed <= hi; observed++) {
+    const logP = logHypergeomPmf(population, successes, draws, observed);
+    logs.push(logP);
+    if (logP > maxLog) maxLog = logP;
+  }
+
+  // Kahan summation keeps broad tails close to one without allowing roundoff
+  // to escape the probability range.
+  let sum = 0.0;
+  let correction = 0.0;
+  for (const logP of logs) {
+    const term = Math.exp(logP - maxLog) - correction;
+    const next = sum + term;
+    correction = next - sum - term;
+    sum = next;
+  }
+  return Math.min(1.0, Math.max(0.0, Math.exp(maxLog) * sum));
+}
+
+/** P(X >= 1), evaluated without subtracting two nearly equal binomial coefficients. */
+export function hypergeomAtLeastOne(
+  population: number,
+  successes: number,
+  draws: number,
+): number {
+  if (successes <= 0) return 0.0;
+  if (draws > population - successes) return 1.0;
+  const logPZero = logComb(population - successes, draws) - logComb(population, draws);
+  return Math.min(1.0, Math.max(0.0, -Math.expm1(logPZero)));
+}
+
 /**
  * `Beta(alpha + a, beta + b) / Beta(alpha, beta)`, computed stably in log
  * space. Used for closed-form posterior moments of `p^a (1-p)^b`.
@@ -60,7 +149,17 @@ export function betaRatio(
   a: number,
   b: number,
 ): number {
-  return Math.exp(betaln(alpha + a, beta + b) - betaln(alpha, beta));
+  return Math.exp(logBetaRatio(alpha, beta, a, b));
+}
+
+/** Logarithm of `Beta(alpha+a, beta+b) / Beta(alpha,beta)`. */
+export function logBetaRatio(
+  alpha: number,
+  beta: number,
+  a: number,
+  b: number,
+): number {
+  return betaln(alpha + a, beta + b) - betaln(alpha, beta);
 }
 
 /**

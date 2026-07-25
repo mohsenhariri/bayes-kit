@@ -32,10 +32,10 @@ function weightedMean(R: readonly (readonly number[])[], wv?: number[]): number 
  *          binary and `[0, 1]` is used.
  * @returns `[a, sigma]` where `a` is the (weighted) average.
  */
-export function avg(R: Matrix, w?: readonly number[]): [number, number] {
+export function avg(R: Matrix, w?: readonly number[] | null): [number, number] {
   const Rm = asMatrix(R);
   let wv: number[];
-  if (w === undefined) {
+  if (w == null) {
     validateBinary(Rm);
     wv = [0.0, 1.0];
   } else {
@@ -61,9 +61,9 @@ export function avg(R: Matrix, w?: readonly number[]): [number, number] {
  */
 export function avgCi(
   R: Matrix,
-  w?: readonly number[],
+  w?: readonly number[] | null,
   confidence = 0.95,
-  bounds?: Bounds,
+  bounds?: Bounds | null,
 ): [number, number, number, number] {
   const [a, sigma] = avg(R, w);
   const [lo, hi] = normalCredibleInterval(a, sigma, confidence, true, bounds);

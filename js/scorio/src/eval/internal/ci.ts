@@ -31,7 +31,7 @@ export function normalCredibleInterval(
   sigma: number,
   credibility = 0.95,
   twoSided = true,
-  bounds?: Bounds,
+  bounds?: Bounds | null,
 ): [number, number] {
   if (sigma < 0) {
     throw new Error(`sigma must be >= 0; got ${sigma}`);
@@ -46,7 +46,7 @@ export function normalCredibleInterval(
     lo = -Infinity;
     hi = mu + z * sigma;
   }
-  if (bounds !== undefined) {
+  if (bounds != null) {
     const [bLo, bHi] = bounds;
     if (bLo > bHi) {
       throw new Error("bounds must satisfy bounds[0] <= bounds[1]");

@@ -8,7 +8,13 @@
  * arXiv:2406.12045.
  */
 
-import { betaRatio, comb } from "./internal/math.js";
+import {
+  betaRatio,
+  comb,
+  hypergeomPmf,
+  hypergeomSf,
+  logBetaRatio,
+} from "./internal/math.js";
 import { normalCredibleInterval, type Bounds } from "./internal/ci.js";
 import {
   asMatrix,
@@ -19,7 +25,7 @@ import {
 import { passAtK, passHatK, passHatKCi } from "./passAtK.js";
 
 function checkK(k: number, N: number): void {
-  if (!(k >= 1 && k <= N) || !Number.isInteger(k)) {
+  if (!(k >= 1 && k <= N)) {
     throw new Error(`k must satisfy 1 <= k <= N (N=${N}); got k=${k}`);
   }
 }
@@ -66,27 +72,16 @@ export function gPassAtKTau(R: Matrix, k: number, tau: number): number {
   const N = Rm[0]!.length;
   checkTau(tau);
   checkK(k, N);
+  if (!Number.isInteger(k)) return NaN;
 
   if (tau <= 0.0) {
     return passAtK(Rm, k);
   }
 
   const nu = rowSums(Rm);
-  const denom = comb(N, k);
-
-  const j0 = Math.ceil(tau * k);
-  if (j0 > k) {
-    return 0.0;
-  }
-
+  const j0 = Math.max(1, Math.ceil(tau * k));
   const M = Rm.length;
-  const vals = new Array<number>(M).fill(0);
-  for (let j = j0; j <= k; j++) {
-    for (let i = 0; i < M; i++) {
-      const v = nu[i]!;
-      vals[i]! += (comb(v, j) * comb(N - v, k - j)) / denom;
-    }
-  }
+  const vals = nu.map((v) => hypergeomSf(N, v, k, j0));
   return vals.reduce((s, v) => s + v, 0) / M;
 }
 
@@ -102,9 +97,11 @@ export function mgPassAtK(R: Matrix, k: number): number {
   validateBinary(Rm);
   const N = Rm[0]!.length;
   checkK(k, N);
+  if (!Number.isInteger(k)) {
+    throw new TypeError("'number' object cannot be interpreted as an integer");
+  }
 
   const nu = rowSums(Rm);
-  const denom = comb(N, k);
 
   const majority = Math.ceil(0.5 * k);
   if (majority >= k) {
@@ -116,7 +113,7 @@ export function mgPassAtK(R: Matrix, k: number): number {
   for (let j = majority + 1; j <= k; j++) {
     for (let i = 0; i < M; i++) {
       const v = nu[i]!;
-      const pmf = (comb(v, j) * comb(N - v, k - j)) / denom;
+      const pmf = hypergeomPmf(N, v, k, j);
       vals[i]! += (j - majority) * pmf;
     }
   }
@@ -129,10 +126,9 @@ export function mgPassAtK(R: Matrix, k: number): number {
  * `E[(success-budget) terms] = Beta(a+j, b+k-j)/Beta(a, b)`.
  *
  * The first and second moments need `Beta(a+x, b+k-x)/Beta(a,b)` (`tK`) and
- * `Beta(a+x, b+2k-x)/Beta(a,b)` (`t2K`). Each array is built from a single
- * `betaRatio` seed via the recurrence
- *   `t[x] = t[x-1] * (a + x - 1) / (sumTo - x)`,
- * eliminating the `O(k^2)` gammaln-bearing `betaRatio` calls in the moment sums.
+ * `Beta(a+x, b+2k-x)/Beta(a,b)` (`t2K`). Evaluate each required ratio directly
+ * in log space. A forward recurrence from x=0 is tempting, but its seed can
+ * underflow for large k and then incorrectly leaves every later moment at zero.
  */
 function iidWeightedMoments(
   alpha: readonly number[],
@@ -148,30 +144,39 @@ function iidWeightedMoments(
     const a = alpha[i]!;
     const b = beta[i]!;
 
-    const tK = new Array<number>(k + 1);
-    tK[0] = betaRatio(a, b, 0, k);
-    for (let x = 1; x <= k; x++) tK[x] = (tK[x - 1]! * (a + x - 1)) / (b + k - x);
+    const logTK = new Array<number>(k + 1);
+    for (let x = 0; x <= k; x++) logTK[x] = logBetaRatio(a, b, x, k - x);
 
-    const t2K = new Array<number>(2 * k + 1);
-    t2K[0] = betaRatio(a, b, 0, 2 * k);
-    for (let x = 1; x <= 2 * k; x++) {
-      t2K[x] = (t2K[x - 1]! * (a + x - 1)) / (b + 2 * k - x);
+    const logT2K = new Array<number>(2 * k + 1);
+    for (let x = 0; x <= 2 * k; x++) {
+      logT2K[x] = logBetaRatio(a, b, x, 2 * k - x);
     }
 
     let m = 0;
-    for (let idx = 0; idx < js.length; idx++) m += coeff[idx]! * tK[js[idx]!]!;
+    for (let idx = 0; idx < js.length; idx++) {
+      const c = coeff[idx]!;
+      if (c !== 0.0) m += Math.exp(Math.log(c) + logTK[js[idx]!]!);
+    }
 
     let e2 = 0;
     for (let idxJ = 0; idxJ < js.length; idxJ++) {
       const cJ = coeff[idxJ]!;
+      if (cJ === 0.0) continue;
       const j = js[idxJ]!;
       for (let idxL = 0; idxL < js.length; idxL++) {
-        e2 += cJ * coeff[idxL]! * t2K[j + js[idxL]!]!;
+        const cL = coeff[idxL]!;
+        if (cL === 0.0) continue;
+        // Preserve Python's floating-point evaluation order. For sufficiently
+        // large k the coefficient product overflows while the beta moment
+        // underflows, producing NaN; Python's max(0.0, NaN) then clips that
+        // row variance to zero.
+        e2 += cJ * cL * Math.exp(logT2K[j + js[idxL]!]!);
       }
     }
 
     meanSum += m;
-    varSum += Math.max(0, e2 - m * m);
+    const rawVariance = e2 - m * m;
+    varSum += Number.isNaN(rawVariance) ? 0.0 : Math.max(0.0, rawVariance);
   }
   return [meanSum / M, Math.sqrt(varSum) / M];
 }
@@ -195,6 +200,9 @@ function gPassAtKTauBayes(
   if (tau >= 1.0) {
     return passHatKBayes(Rm, k, alpha0, beta0);
   }
+  if (!Number.isInteger(k)) {
+    throw new TypeError("'number' object cannot be interpreted as an integer");
+  }
 
   const M = Rm.length;
   const j0 = Math.ceil(tau * k);
@@ -215,6 +223,9 @@ function mgPassAtKBayes(
   const Rm = asMatrix(R);
   const { alpha, beta, N } = binaryBetaPosterior(Rm, alpha0, beta0);
   checkK(k, N);
+  if (!Number.isInteger(k)) {
+    throw new TypeError("'number' object cannot be interpreted as an integer");
+  }
 
   const majority = Math.ceil(0.5 * k);
   if (majority >= k) {
@@ -286,7 +297,7 @@ export function gPassAtKCi(
   R: Matrix,
   k: number,
   confidence = 0.95,
-  bounds: Bounds = [0.0, 1.0],
+  bounds: Bounds | null = [0.0, 1.0],
   alpha0 = 1.0,
   beta0 = 1.0,
 ): [number, number, number, number] {
@@ -299,7 +310,7 @@ export function gPassAtKTauCi(
   k: number,
   tau: number,
   confidence = 0.95,
-  bounds: Bounds = [0.0, 1.0],
+  bounds: Bounds | null = [0.0, 1.0],
   alpha0 = 1.0,
   beta0 = 1.0,
 ): [number, number, number, number] {
@@ -313,7 +324,7 @@ export function mgPassAtKCi(
   R: Matrix,
   k: number,
   confidence = 0.95,
-  bounds: Bounds = [0.0, 1.0],
+  bounds: Bounds | null = [0.0, 1.0],
   alpha0 = 1.0,
   beta0 = 1.0,
 ): [number, number, number, number] {

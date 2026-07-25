@@ -8,7 +8,10 @@
  * summary as `Pass@k^lam * S_{w,k}^{1-lam}`.
  */
 
-import { betaRatio, comb } from "./internal/math.js";
+import {
+  comb,
+  logBetaRatio,
+} from "./internal/math.js";
 import { normalCredibleInterval, type Bounds } from "./internal/ci.js";
 import {
   asMatrix,
@@ -60,7 +63,7 @@ function validateBetaPrior(alpha0: number, beta0: number): void {
 }
 
 function validateFiniteBankK(N: number, k: number): void {
-  if (!(k >= 1 && k <= N) || !Number.isInteger(k)) {
+  if (!(k >= 1 && k <= N)) {
     throw new Error(`k must satisfy 1 <= k <= N (N=${N}); got k=${k}`);
   }
 }
@@ -71,10 +74,10 @@ function validateLatentK(k: number): void {
   }
 }
 
-function resolveLambda(lam: number, lambda?: number): number {
-  if (lambda !== undefined) {
+function resolveLambda(lam: number, lambda?: number | null): number {
+  if (lambda != null) {
     if (lam !== 0.5) {
-      throw new Error("Specify at most one of 'lam' and 'lambda_'.");
+      throw new TypeError("Specify at most one of 'lam' and 'lambda_'.");
     }
     lam = lambda;
   }
@@ -199,6 +202,8 @@ export function geomAtK(
   let sum = 0.0;
   for (let i = 0; i < Rm.length; i++) {
     const v = nu[i]!;
+    // scipy.special.comb extends this formula to fractional k, unlike the
+    // hypergeometric-distribution APIs used by the other point metrics.
     const passVal = 1.0 - comb(N - v, k) / denom;
     const unanimousVal = comb(v, k) / denom;
     sum += weightedGeometricMean(passVal, unanimousVal, passPower, unanimousPower);
@@ -215,8 +220,8 @@ export function geoSpectrumAtK(
   R: Matrix,
   k: number,
   lam = 0.5,
-  weights?: Weights,
-  lambda?: number,
+  weights?: Weights | null,
+  lambda?: number | null,
 ): number {
   lam = resolveLambda(lam, lambda);
   const passScore = passAtK(R, k);
@@ -224,7 +229,7 @@ export function geoSpectrumAtK(
     return passScore;
   }
   const w =
-    weights === undefined
+    weights == null
       ? mgSpectrumWeights(k)
       : validateSpectrumWeights(weights, k);
   const spectrumScore = thresholdSpectrumAtK(R, k, w);
@@ -291,23 +296,21 @@ function passAndSpectrumRowPosteriorMoments(
     const aI = alpha[i]!;
     const bI = beta[i]!;
 
-    // tK[x] = Beta(aI+x, bI+k-x)/Beta(aI,bI); t2K[x] = Beta(aI+x, bI+2k-x)/Beta(aI,bI).
-    // Each is built from one betaRatio seed via the recurrence
-    //   t[x] = t[x-1] * (aI + x - 1) / (sumTo - x),
-    // removing the O(k^2) gammaln-bearing betaRatio calls in the moment sums.
-    const tK = new Array<number>(k + 1);
-    tK[0] = betaRatio(aI, bI, 0, k);
-    for (let x = 1; x <= k; x++) tK[x] = (tK[x - 1]! * (aI + x - 1)) / (bI + k - x);
+    // tK[x] = Beta(aI+x, bI+k-x)/Beta(aI,bI); t2K[x] =
+    // Beta(aI+x, bI+2k-x)/Beta(aI,bI). Compute each ratio directly in log
+    // space: an endpoint-seeded recurrence can underflow at x=0 and can never
+    // recover the nonzero moments near the beta-binomial mode.
+    const logTK = new Array<number>(k + 1);
+    for (let x = 0; x <= k; x++) logTK[x] = logBetaRatio(aI, bI, x, k - x);
 
-    const t2K = new Array<number>(2 * k + 1);
-    t2K[0] = betaRatio(aI, bI, 0, 2 * k);
-    for (let x = 1; x <= 2 * k; x++) {
-      t2K[x] = (t2K[x - 1]! * (aI + x - 1)) / (bI + 2 * k - x);
+    const logT2K = new Array<number>(2 * k + 1);
+    for (let x = 0; x <= 2 * k; x++) {
+      logT2K[x] = logBetaRatio(aI, bI, x, 2 * k - x);
     }
 
-    const eqk = tK[0]!;
+    const eqk = Math.exp(logTK[0]!);
     const mPass = 1.0 - eqk;
-    const vPass = Math.max(0.0, t2K[0]! - eqk * eqk);
+    const vPass = Math.max(0.0, Math.exp(logT2K[0]!) - eqk * eqk);
 
     let mSpec = 0.0;
     let e2Spec = 0.0;
@@ -315,15 +318,22 @@ function passAndSpectrumRowPosteriorMoments(
 
     for (const j of activeJs) {
       const cJ = coeff[j]!;
-      const momentJ = tK[j]!;
-      mSpec += cJ * momentJ;
-      ePs += cJ * (momentJ - t2K[j]!);
+      const logCJ = Math.log(cJ);
+      const momentJ = Math.exp(logTK[j]!);
+      const weightedMomentJ = Math.exp(logCJ + logTK[j]!);
+      mSpec += weightedMomentJ;
+      ePs += cJ * (momentJ - Math.exp(logT2K[j]!));
       for (const l of activeJs) {
-        e2Spec += cJ * coeff[l]! * t2K[j + l]!;
+        // Match Python's coefficient-product-first floating-point behavior;
+        // its max(0.0, NaN) convention clips overflow*underflow variance terms.
+        e2Spec += cJ * coeff[l]! * Math.exp(logT2K[j + l]!);
       }
     }
 
-    const vSpec = Math.max(0.0, e2Spec - mSpec * mSpec);
+    const rawSpecVariance = e2Spec - mSpec * mSpec;
+    const vSpec = Number.isNaN(rawSpecVariance)
+      ? 0.0
+      : Math.max(0.0, rawSpecVariance);
     const cov = ePs - mPass * mSpec;
 
     meanPass[i] = mPass;
@@ -518,7 +528,7 @@ export function thresholdSpectrumAtKCi(
   k: number,
   weights: Weights,
   confidence = 0.95,
-  bounds: Bounds = [0.0, 1.0],
+  bounds: Bounds | null = [0.0, 1.0],
   alpha0 = 1.0,
   beta0 = 1.0,
 ): [number, number, number, number] {
@@ -542,7 +552,7 @@ export function geomAtKCi(
   passPower = 0.5,
   unanimousPower = 0.5,
   confidence = 0.95,
-  bounds: Bounds = [0.0, 1.0],
+  bounds: Bounds | null = [0.0, 1.0],
   alpha0 = 1.0,
   beta0 = 1.0,
 ): [number, number, number, number] {
@@ -558,7 +568,7 @@ export function geomDsAtKCi(
   passPower = 0.5,
   unanimousPower = 0.5,
   confidence = 0.95,
-  bounds: Bounds = [0.0, 1.0],
+  bounds: Bounds | null = [0.0, 1.0],
   alpha0 = 1.0,
   beta0 = 1.0,
 ): [number, number, number, number] {
@@ -576,10 +586,10 @@ export function geoSpectrumAtKCi(
   R: Matrix,
   k: number,
   lam = 0.5,
-  weights?: Weights,
-  lambda?: number,
+  weights?: Weights | null,
+  lambda?: number | null,
   confidence = 0.95,
-  bounds: Bounds = [0.0, 1.0],
+  bounds: Bounds | null = [0.0, 1.0],
   alpha0 = 1.0,
   beta0 = 1.0,
 ): [number, number, number, number] {
@@ -587,7 +597,7 @@ export function geoSpectrumAtKCi(
   let w: number[];
   if (lam !== 1.0) {
     w =
-      weights === undefined
+      weights == null
         ? mgSpectrumWeights(k)
         : validateSpectrumWeights(weights, k);
   } else {
@@ -613,7 +623,7 @@ export function geoSpectrumStarAtKCi(
   R: Matrix,
   k: number,
   confidence = 0.95,
-  bounds: Bounds = [0.0, 1.0],
+  bounds: Bounds | null = [0.0, 1.0],
   alpha0 = 1.0,
   beta0 = 1.0,
 ): [number, number, number, number] {

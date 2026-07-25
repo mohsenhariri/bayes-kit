@@ -169,7 +169,7 @@ export function aucAtKCi(
   R: Matrix,
   k: number,
   confidence = 0.95,
-  bounds: Bounds = [0.0, 1.0],
+  bounds: Bounds | null = [0.0, 1.0],
   alpha0 = 1.0,
   beta0 = 1.0,
 ): [number, number, number, number] {

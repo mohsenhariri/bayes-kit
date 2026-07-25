@@ -7,7 +7,11 @@
  * arXiv:2406.12045.
  */
 
-import { betaRatio, comb } from "./internal/math.js";
+import {
+  betaRatio,
+  hypergeomAtLeastOne,
+  hypergeomPmf,
+} from "./internal/math.js";
 import { normalCredibleInterval, type Bounds } from "./internal/ci.js";
 import {
   asMatrix,
@@ -17,7 +21,7 @@ import {
 } from "./internal/validate.js";
 
 function checkK(k: number, N: number): void {
-  if (!(k >= 1 && k <= N) || !Number.isInteger(k)) {
+  if (!(k >= 1 && k <= N)) {
     throw new Error(`k must satisfy 1 <= k <= N (N=${N}); got k=${k}`);
   }
 }
@@ -28,9 +32,9 @@ export function passAtK(R: Matrix, k: number): number {
   validateBinary(Rm);
   const N = Rm[0]!.length;
   checkK(k, N);
-  const denom = comb(N, k);
+  if (!Number.isInteger(k)) return NaN;
   const nu = rowSums(Rm);
-  const vals = nu.map((v) => 1 - comb(N - v, k) / denom);
+  const vals = nu.map((v) => hypergeomAtLeastOne(N, v, k));
   return vals.reduce((s, v) => s + v, 0) / vals.length;
 }
 
@@ -40,9 +44,9 @@ export function passHatK(R: Matrix, k: number): number {
   validateBinary(Rm);
   const N = Rm[0]!.length;
   checkK(k, N);
-  const denom = comb(N, k);
+  if (!Number.isInteger(k)) return NaN;
   const nu = rowSums(Rm);
-  const vals = nu.map((v) => comb(v, k) / denom);
+  const vals = nu.map((v) => hypergeomPmf(N, v, k, k));
   return vals.reduce((s, v) => s + v, 0) / vals.length;
 }
 
@@ -117,7 +121,7 @@ export function passAtKCi(
   R: Matrix,
   k: number,
   confidence = 0.95,
-  bounds: Bounds = [0.0, 1.0],
+  bounds: Bounds | null = [0.0, 1.0],
   alpha0 = 1.0,
   beta0 = 1.0,
 ): [number, number, number, number] {
@@ -131,7 +135,7 @@ export function passHatKCi(
   R: Matrix,
   k: number,
   confidence = 0.95,
-  bounds: Bounds = [0.0, 1.0],
+  bounds: Bounds | null = [0.0, 1.0],
   alpha0 = 1.0,
   beta0 = 1.0,
 ): [number, number, number, number] {

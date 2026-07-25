@@ -37,7 +37,6 @@ import {
   thresholdSpectrumAtK,
   thresholdSpectrumAtKCi,
 } from "./geom.js";
-import { normalCredibleInterval } from "./internal/ci.js";
 
 export type { Matrix } from "./internal/validate.js";
 export type { Bounds } from "./internal/ci.js";
@@ -90,8 +89,6 @@ export {
   geoSpectrumAtKCi,
   geoSpectrumStarAtK,
   geoSpectrumStarAtKCi,
-  // Shared utility
-  normalCredibleInterval,
 };
 
 // ---------------------------------------------------------------------------
@@ -128,5 +125,4 @@ export {
   geoSpectrumAtKCi as geo_spectrum_at_k_ci,
   geoSpectrumStarAtK as geo_spectrum_star_at_k,
   geoSpectrumStarAtKCi as geo_spectrum_star_at_k_ci,
-  normalCredibleInterval as normal_credible_interval,
 };

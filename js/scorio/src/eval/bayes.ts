@@ -8,6 +8,7 @@
 import { normalCredibleInterval, type Bounds } from "./internal/ci.js";
 import {
   asMatrix,
+  asPriorMatrix,
   rowBincount,
   validateMatrixRange,
   type Matrix,
@@ -21,7 +22,7 @@ function detectBinaryWeights(R: readonly (readonly number[])[]): number[] {
     const vals = [...seen].sort((a, b) => a - b).join(", ");
     throw new Error(
       `R contains more than 2 unique values (${vals}), so weight vector 'w' must be provided. ` +
-        `Please specify a weight vector to map each category to a score.`,
+        `Please specify a weight vector of length ${seen.size} to map each category to a score.`,
     );
   }
   return [0.0, 1.0];
@@ -36,20 +37,24 @@ function detectBinaryWeights(R: readonly (readonly number[])[]): number[] {
  * @param R0 Optional `M x D` matrix of prior outcomes per row.
  * @returns `[mu, sigma]`.
  */
-export function bayes(R: Matrix, w?: readonly number[], R0?: Matrix): [number, number] {
+export function bayes(
+  R: Matrix,
+  w?: readonly number[] | null,
+  R0?: Matrix | null,
+): [number, number] {
   const Rm = asMatrix(R);
-  const wv = w === undefined ? detectBinaryWeights(Rm) : w.map(Number);
+  const wv = w == null ? detectBinaryWeights(Rm) : w.map(Number);
   const M = Rm.length;
   const N = Rm[0]!.length;
   const C = wv.length - 1;
 
   let R0m: number[][];
   let D: number;
-  if (R0 === undefined) {
+  if (R0 == null) {
     D = 0;
     R0m = Rm.map(() => []);
   } else {
-    R0m = asMatrix(R0);
+    R0m = asPriorMatrix(R0, M);
     if (R0m.length !== M) {
       throw new Error("R0 must have the same number of rows (M) as R.");
     }
@@ -93,10 +98,10 @@ export function bayes(R: Matrix, w?: readonly number[], R0?: Matrix): [number, n
  */
 export function bayesCi(
   R: Matrix,
-  w?: readonly number[],
-  R0?: Matrix,
+  w?: readonly number[] | null,
+  R0?: Matrix | null,
   confidence = 0.95,
-  bounds?: Bounds,
+  bounds?: Bounds | null,
 ): [number, number, number, number] {
   const [mu, sigma] = bayes(R, w, R0);
   const [lo, hi] = normalCredibleInterval(mu, sigma, confidence, true, bounds);
