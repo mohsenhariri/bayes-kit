@@ -6,9 +6,9 @@ import { passAtK } from "../src/eval/passAtK.js";
 import { maxAtKCi } from "../src/eval/maxReward.js";
 
 describe("review fixes", () => {
-  it("toInt rejects fractional entries instead of truncating", () => {
-    expect(() => asMatrix([[0, 0.8]])).toThrow(/must be integers/);
-    expect(() => passAtK([[0, 0.8, 1]], 1)).toThrow(/must be integers/);
+  it("toInt truncates finite fractional entries like numpy dtype=int", () => {
+    expect(asMatrix([[0.8, 1.9, -0.2]])).toEqual([[0, 1, 0]]);
+    expect(passAtK([[0, 0.8, 1.9]], 1)).toBe(passAtK([[0, 0, 1]], 1));
   });
 
   it("toInt still accepts integer-valued floats", () => {
@@ -23,11 +23,13 @@ describe("review fixes", () => {
     expect(Number.isNaN(gammaln(-0.5))).toBe(false);
   });
 
-  it("maxAtKCi rejects a non-integer k", () => {
+  it("maxAtKCi mirrors Python's generalized non-integer posterior behavior", () => {
     const R = [
       [0, 1, 2, 2, 1],
       [1, 1, 0, 2, 2],
     ];
-    expect(() => maxAtKCi(R, 2.5, [0.0, 0.5, 1.0])).toThrow(/integer/);
+    const result = maxAtKCi(R, 2.5, [0.0, 0.5, 1.0]);
+    expect(result[0]).toBeCloseTo(0.8007606428659061, 12);
+    expect(result[1]).toBeCloseTo(0.08467375920895717, 12);
   });
 });

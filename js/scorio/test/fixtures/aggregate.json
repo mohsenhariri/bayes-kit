@@ -1,0 +1,566 @@
+{
+  "confidence": {
+    "logprobs": [
+      -0.13,
+      -0.44,
+      -0.07,
+      -0.81,
+      -0.22
+    ],
+    "topk": [
+      [
+        -0.05,
+        -1.7,
+        -3.2,
+        -4.1
+      ],
+      [
+        -0.9,
+        -1.0,
+        -1.4,
+        -2.8
+      ],
+      [
+        -0.2,
+        -0.7,
+        -2.1,
+        -3.0
+      ],
+      [
+        -1.1,
+        -1.2,
+        -1.25,
+        -1.8
+      ],
+      [
+        -0.01,
+        -2.4,
+        -4.0,
+        -5.2
+      ],
+      [
+        -0.5,
+        -0.8,
+        -1.9,
+        -2.2
+      ]
+    ],
+    "ragged": [
+      [
+        -0.1,
+        -1.3
+      ],
+      [
+        -0.2,
+        -0.7,
+        -2.9
+      ],
+      [
+        -0.4
+      ]
+    ],
+    "mean_logprob": -0.334,
+    "sequence_logprob": -1.6700000000000002,
+    "perplexity": 1.3965431435745053,
+    "picsar": -1.6700000000000002,
+    "picsar_split": -1.6700000000000002,
+    "picsar_normalized": -1.2433333333333334,
+    "picsar_zero": -1.6700000000000002,
+    "picsar_end": -1.6700000000000002,
+    "self_certainty": {
+      "mean": 0.6111977960788638,
+      "min": 0.033586209183823934,
+      "max": 1.6156889086271236
+    },
+    "token_entropy": {
+      "mean": 0.9705452781071339,
+      "min": 0.39784673132111836,
+      "max": 1.3562545512650535
+    },
+    "varentropy": {
+      "mean": 0.4415438745574595,
+      "min": 0.053069560117527385,
+      "max": 0.8112017502375107
+    },
+    "max_softmax_probability": {
+      "mean": 0.6843302357465292,
+      "min": 0.33287108369807955,
+      "max": 0.9900498337491681
+    },
+    "logprob_margin": {
+      "mean": 0.84,
+      "min": 0.09999999999999987,
+      "max": 2.39
+    },
+    "prob_margin": 0.36959866935745894,
+    "token_confidence": [
+      2.2625,
+      1.525,
+      1.5,
+      1.3375,
+      2.9025,
+      1.35
+    ],
+    "deepconf": {
+      "mean": 1.8129166666666665,
+      "tail": 1.8633333333333333,
+      "lowest_group": 1.4541666666666666,
+      "bottom_group": 1.6083333333333334
+    },
+    "ragged_entropy": 0.44857159972591115,
+    "ragged_self_certainty": 0.2177493404494055,
+    "bare_row_entropy": 0.6421673536482757,
+    "single_candidate_margin": 0.0,
+    "extreme": {
+      "topk": [
+        [
+          0.0,
+          -1000.0
+        ]
+      ],
+      "token_entropy": 0.0,
+      "varentropy": 0.0,
+      "self_certainty": 499.30685281944005
+    }
+  },
+  "prm": {
+    "steps": [
+      0.91,
+      0.42,
+      0.88,
+      0.73
+    ],
+    "outputs": {
+      "last": 0.73,
+      "min": 0.42,
+      "mean": 0.735,
+      "prod": 0.24552527999999998,
+      "max": 0.91
+    }
+  },
+  "selection": {
+    "answers": [
+      "A",
+      "A",
+      "A",
+      "B",
+      "B",
+      "C",
+      null,
+      ""
+    ],
+    "scores": [
+      0.32,
+      0.61,
+      0.55,
+      0.94,
+      0.25,
+      0.15,
+      99.0,
+      98.0
+    ],
+    "majority_vote": [
+      "A",
+      0
+    ],
+    "best_of_n": [
+      "B",
+      3,
+      0.94
+    ],
+    "weighted_sum": [
+      "A",
+      1,
+      0.61
+    ],
+    "weighted_mean": [
+      "B",
+      3,
+      0.94
+    ],
+    "mob_default": [
+      "A",
+      1,
+      0.61
+    ],
+    "mob_m3": [
+      "A",
+      1,
+      0.61
+    ],
+    "best_of_majority": [
+      "A",
+      1,
+      0.61
+    ],
+    "best_of_majority_sum": [
+      "A",
+      1,
+      0.61
+    ],
+    "best_of_majority_max": [
+      "B",
+      3,
+      0.94
+    ],
+    "softmax": [
+      "A",
+      1,
+      0.61
+    ],
+    "softmax_infinite": [
+      "A",
+      1,
+      0.61
+    ],
+    "rank_p0": [
+      "A",
+      1,
+      0.61
+    ],
+    "rank_p1": [
+      "A",
+      1,
+      0.61
+    ],
+    "rank_fractional": [
+      "A",
+      1,
+      0.61
+    ],
+    "logit": [
+      "B",
+      3,
+      0.94
+    ],
+    "linear": [
+      "A",
+      1,
+      0.61
+    ],
+    "filtered_fraction": [
+      "A",
+      1,
+      0.61
+    ],
+    "filtered_count": [
+      "A",
+      1,
+      0.61
+    ],
+    "filtered_all": [
+      "A",
+      1,
+      0.61
+    ]
+  },
+  "batch": {
+    "answers": [
+      [
+        "A",
+        "B",
+        "A"
+      ],
+      [
+        "X",
+        "Y",
+        "Y"
+      ],
+      [
+        null,
+        "",
+        "nan"
+      ]
+    ],
+    "scores": [
+      [
+        0.2,
+        0.9,
+        0.4
+      ],
+      [
+        0.8,
+        0.2,
+        0.7
+      ],
+      [
+        1.0,
+        2.0,
+        3.0
+      ]
+    ],
+    "majority_vote": [
+      [
+        "A",
+        "Y",
+        null
+      ],
+      [
+        0,
+        1,
+        -1
+      ]
+    ],
+    "best_of_n": [
+      [
+        "B",
+        "X",
+        null
+      ],
+      [
+        1,
+        0,
+        -1
+      ],
+      [
+        0.9,
+        0.8,
+        "nan"
+      ]
+    ],
+    "weighted": [
+      [
+        "B",
+        "Y",
+        null
+      ],
+      [
+        1,
+        2,
+        -1
+      ],
+      [
+        0.9,
+        0.7,
+        "nan"
+      ]
+    ],
+    "mob": [
+      [
+        "A",
+        "Y",
+        null
+      ],
+      [
+        2,
+        2,
+        -1
+      ],
+      [
+        0.4,
+        0.7,
+        "nan"
+      ]
+    ],
+    "filtered": [
+      [
+        "B",
+        "Y",
+        null
+      ],
+      [
+        1,
+        2,
+        -1
+      ],
+      [
+        0.9,
+        0.7,
+        "nan"
+      ]
+    ]
+  },
+  "exact": {
+    "mob_tie_answers": [
+      "D",
+      "B",
+      "D",
+      "B",
+      "A",
+      "B",
+      "A"
+    ],
+    "mob_tie_scores": [
+      0.6667,
+      0.3333,
+      0.8333,
+      0.1667,
+      0.5,
+      0.0,
+      1.0
+    ],
+    "mob_tie": "D",
+    "rank_answers": [
+      "A",
+      "B",
+      "C",
+      "A",
+      "B",
+      "C",
+      "A",
+      "C"
+    ],
+    "rank_scores": [
+      2.0,
+      2.0,
+      1.0,
+      0.0,
+      1.0,
+      2.0,
+      1.0,
+      0.0
+    ],
+    "rank_integer": "A",
+    "filtered_sorted_tie": [
+      "B",
+      2
+    ]
+  },
+  "online": {
+    "warmup": [
+      0.7,
+      2.1,
+      1.4,
+      4.8,
+      3.0,
+      2.9,
+      5.2
+    ],
+    "threshold_keep_02": 4.440000000000001,
+    "threshold_keep_all": 0.7,
+    "topk": [
+      [
+        0.0,
+        -2.0
+      ],
+      [
+        0.0,
+        -2.0
+      ],
+      [
+        0.0,
+        -2.0
+      ],
+      [
+        -4.0,
+        -6.0
+      ],
+      [
+        -4.0,
+        -6.0
+      ],
+      [
+        -4.0,
+        -6.0
+      ],
+      [
+        -4.0,
+        -6.0
+      ]
+    ],
+    "token_stop": 2,
+    "token_no_stop": null,
+    "token_equal_no_stop": null,
+    "token_later_stop": 5,
+    "adaptive_dominant": [
+      true,
+      0.96728515625
+    ],
+    "adaptive_tie": [
+      false,
+      0.5
+    ],
+    "adaptive_invalid": [
+      false,
+      0.0
+    ],
+    "adaptive_large_near_counts": [
+      100000,
+      99999
+    ],
+    "adaptive_large_near": [
+      false,
+      0.5008920609429994
+    ],
+    "dirichlet_three": [
+      false,
+      0.8179649396053817
+    ],
+    "dirichlet_large": [
+      true,
+      0.9891042503731576
+    ],
+    "dirichlet_very_large": [
+      false,
+      0.5884898699366304
+    ],
+    "dirichlet_symmetric": [
+      false,
+      0.3333333333333333
+    ],
+    "crp_dominant": [
+      true,
+      1.0
+    ],
+    "crp_tie": [
+      false,
+      0.5665
+    ],
+    "esc_true": true,
+    "esc_false": false,
+    "esc_invalid": false
+  },
+  "calibration": {
+    "correct_logits": [
+      1.3862943611198908,
+      2.1972245773362196
+    ],
+    "incorrect_logits": [
+      -2.197224577336219,
+      -1.3862943611198906
+    ],
+    "correct_bandwidth": 0.5,
+    "incorrect_bandwidth": 0.5,
+    "bin_edges": [
+      "-inf",
+      0.8,
+      "inf"
+    ],
+    "bin_probability": [
+      0.0,
+      1.0
+    ],
+    "calibrated_probability": [
+      0.0,
+      0.0,
+      1.0,
+      1.0
+    ],
+    "log_density_ratio": [
+      -4.5070327766285185,
+      9.442304488091388
+    ],
+    "vote": "B"
+  },
+  "cges": {
+    "vote": [
+      "A",
+      1,
+      0.9
+    ],
+    "other": "CGES_OTHER",
+    "other_metadata": [
+      "CGES_OTHER",
+      -1,
+      "nan"
+    ],
+    "stop": [
+      true,
+      0.9
+    ],
+    "other_stop": [
+      true,
+      0.9
+    ]
+  }
+}

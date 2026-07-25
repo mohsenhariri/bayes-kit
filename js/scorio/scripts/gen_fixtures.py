@@ -8,13 +8,16 @@ Run from repo root:  python js/scorio/scripts/gen_fixtures.py
 """
 
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
 
-from scorio import rank
-
 ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
+
+from scorio import rank  # noqa: E402
+
 DATA = ROOT / "tests" / "data" / "R_top_p.npz"
 OUT = Path(__file__).resolve().parents[1] / "test" / "fixtures" / "rank.json"
 
@@ -60,6 +63,8 @@ def build_fixtures():
     #   "exact"      -> ranking exact + scores allclose (rtol 1e-6)
     #   "loose"      -> ranking exact + scores allclose only when |score|<50 (optimizer)
     #   "structural" -> valid ranking + ordering sanity only (stochastic / non-unique)
+    #   "error"      -> finalized Python rejects the input (for example a
+    #                   separated maximum-likelihood profile)
     cases = []
 
     def add(name, ranking, scores, kind, inp):
@@ -73,56 +78,215 @@ def build_fixtures():
             }
         )
 
+    def add_call(name, kind, inp, builder):
+        try:
+            ranking, scores = builder(inp)
+        except (TypeError, ValueError, RuntimeError) as exc:
+            cases.append(
+                {
+                    "name": name,
+                    "input": np.asarray(inp).tolist(),
+                    "kind": "error",
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                }
+            )
+            return
+        add(name, ranking, scores, kind, inp)
+
     # Each binary method: builder(R) -> (ranking, scores). Run over both 3D datasets.
     binary_methods = [
         ("avg", "exact", lambda R: rank.avg(R, return_scores=True)),
         ("pass_at_k", "exact", lambda R: rank.pass_at_k(R, k=2, return_scores=True)),
         ("pass_hat_k", "exact", lambda R: rank.pass_hat_k(R, k=2, return_scores=True)),
-        ("g_pass_at_k_tau", "exact", lambda R: rank.g_pass_at_k_tau(R, k=2, tau=0.7, return_scores=True)),
-        ("mg_pass_at_k", "exact", lambda R: rank.mg_pass_at_k(R, k=2, return_scores=True)),
-        ("inverse_difficulty", "exact", lambda R: rank.inverse_difficulty(R, return_scores=True)),
+        (
+            "g_pass_at_k_tau",
+            "exact",
+            lambda R: rank.g_pass_at_k_tau(R, k=2, tau=0.7, return_scores=True),
+        ),
+        (
+            "mg_pass_at_k",
+            "exact",
+            lambda R: rank.mg_pass_at_k(R, k=2, return_scores=True),
+        ),
+        (
+            "inverse_difficulty",
+            "exact",
+            lambda R: rank.inverse_difficulty(R, return_scores=True),
+        ),
         ("elo", "exact", lambda R: rank.elo(R, return_scores=True)),
         ("glicko", "exact", lambda R: rank.glicko(R, return_scores=True)),
         ("trueskill", "exact", lambda R: rank.trueskill(R, return_scores=True)),
-        ("bradley_terry", "loose", lambda R: rank.bradley_terry(R, max_iter=80, return_scores=True)),
-        ("bradley_terry_map", "loose", lambda R: rank.bradley_terry_map(R, prior=1.0, max_iter=80, return_scores=True)),
-        ("bradley_terry_davidson", "loose", lambda R: rank.bradley_terry_davidson(R, max_iter=80, return_scores=True)),
-        ("bradley_terry_davidson_map", "loose", lambda R: rank.bradley_terry_davidson_map(R, prior=1.0, max_iter=80, return_scores=True)),
-        ("rao_kupper", "loose", lambda R: rank.rao_kupper(R, tie_strength=1.1, max_iter=80, return_scores=True)),
-        ("rao_kupper_map", "loose", lambda R: rank.rao_kupper_map(R, tie_strength=1.1, prior=1.0, max_iter=80, return_scores=True)),
-        ("thompson", "structural", lambda R: rank.thompson(R, n_samples=700, seed=7, return_scores=True)),
-        ("bayesian_mcmc", "structural", lambda R: rank.bayesian_mcmc(R, n_samples=400, burnin=100, seed=7, return_scores=True)),
+        (
+            "bradley_terry",
+            "loose",
+            lambda R: rank.bradley_terry(R, max_iter=80, return_scores=True),
+        ),
+        (
+            "bradley_terry_map",
+            "loose",
+            lambda R: rank.bradley_terry_map(
+                R, prior=1.0, max_iter=80, return_scores=True
+            ),
+        ),
+        (
+            "bradley_terry_davidson",
+            "loose",
+            lambda R: rank.bradley_terry_davidson(R, max_iter=80, return_scores=True),
+        ),
+        (
+            "bradley_terry_davidson_map",
+            "loose",
+            lambda R: rank.bradley_terry_davidson_map(
+                R, prior=1.0, max_iter=80, return_scores=True
+            ),
+        ),
+        (
+            "rao_kupper",
+            "loose",
+            lambda R: rank.rao_kupper(
+                R, tie_strength=1.1, max_iter=80, return_scores=True
+            ),
+        ),
+        (
+            "rao_kupper_map",
+            "loose",
+            lambda R: rank.rao_kupper_map(
+                R, tie_strength=1.1, prior=1.0, max_iter=80, return_scores=True
+            ),
+        ),
+        (
+            "thompson",
+            "structural",
+            lambda R: rank.thompson(R, n_samples=700, seed=7, return_scores=True),
+        ),
+        (
+            "bayesian_mcmc",
+            "structural",
+            lambda R: rank.bayesian_mcmc(
+                R, n_samples=400, burnin=100, seed=7, return_scores=True
+            ),
+        ),
         ("borda", "exact", lambda R: rank.borda(R, return_scores=True)),
         ("copeland", "exact", lambda R: rank.copeland(R, return_scores=True)),
         ("win_rate", "exact", lambda R: rank.win_rate(R, return_scores=True)),
         ("minimax", "exact", lambda R: rank.minimax(R, return_scores=True)),
         ("schulze", "exact", lambda R: rank.schulze(R, return_scores=True)),
         ("ranked_pairs", "exact", lambda R: rank.ranked_pairs(R, return_scores=True)),
-        ("kemeny_young", "exact", lambda R: rank.kemeny_young(R, time_limit=1.0, return_scores=True)),
+        (
+            "kemeny_young",
+            "exact",
+            lambda R: rank.kemeny_young(R, time_limit=1.0, return_scores=True),
+        ),
         ("nanson", "exact", lambda R: rank.nanson(R, return_scores=True)),
         ("baldwin", "exact", lambda R: rank.baldwin(R, return_scores=True)),
-        ("majority_judgment", "exact", lambda R: rank.majority_judgment(R, return_scores=True)),
+        (
+            "majority_judgment",
+            "exact",
+            lambda R: rank.majority_judgment(R, return_scores=True),
+        ),
         ("rasch", "loose", lambda R: rank.rasch(R, max_iter=60, return_scores=True)),
-        ("rasch_map", "loose", lambda R: rank.rasch_map(R, prior=1.0, max_iter=60, return_scores=True)),
-        ("rasch_2pl", "loose", lambda R: rank.rasch_2pl(R, max_iter=60, return_scores=True)),
-        ("rasch_2pl_map", "loose", lambda R: rank.rasch_2pl_map(R, prior=1.0, max_iter=60, return_scores=True)),
-        ("rasch_3pl", "loose", lambda R: rank.rasch_3pl(R, max_iter=50, fix_guessing=0.2, return_scores=True)),
-        ("rasch_3pl_map", "loose", lambda R: rank.rasch_3pl_map(R, prior=1.0, max_iter=50, fix_guessing=0.2, return_scores=True)),
-        ("rasch_mml", "loose", lambda R: rank.rasch_mml(R, max_iter=10, em_iter=6, n_quadrature=9, return_scores=True)),
-        ("rasch_mml_credible", "loose", lambda R: rank.rasch_mml_credible(R, quantile=0.1, max_iter=10, em_iter=6, n_quadrature=9, return_scores=True)),
+        (
+            "rasch_map",
+            "loose",
+            lambda R: rank.rasch_map(R, prior=1.0, max_iter=60, return_scores=True),
+        ),
+        (
+            "rasch_2pl",
+            "loose",
+            lambda R: rank.rasch_2pl(R, max_iter=60, return_scores=True),
+        ),
+        (
+            "rasch_2pl_map",
+            "loose",
+            lambda R: rank.rasch_2pl_map(R, prior=1.0, max_iter=60, return_scores=True),
+        ),
+        (
+            "rasch_3pl",
+            "loose",
+            lambda R: rank.rasch_3pl(
+                R, max_iter=50, fix_guessing=0.2, return_scores=True
+            ),
+        ),
+        (
+            "rasch_3pl_map",
+            "loose",
+            lambda R: rank.rasch_3pl_map(
+                R, prior=1.0, max_iter=50, fix_guessing=0.2, return_scores=True
+            ),
+        ),
+        (
+            "rasch_mml",
+            "loose",
+            lambda R: rank.rasch_mml(
+                R, max_iter=10, em_iter=6, n_quadrature=9, return_scores=True
+            ),
+        ),
+        (
+            "rasch_mml_credible",
+            "loose",
+            lambda R: rank.rasch_mml_credible(
+                R,
+                quantile=0.1,
+                max_iter=10,
+                em_iter=6,
+                n_quadrature=9,
+                return_scores=True,
+            ),
+        ),
         ("pagerank", "exact", lambda R: rank.pagerank(R, return_scores=True)),
         ("spectral", "exact", lambda R: rank.spectral(R, return_scores=True)),
-        ("alpharank", "exact", lambda R: rank.alpharank(R, population_size=20, max_iter=10_000, return_scores=True)),
+        (
+            "alpharank",
+            "exact",
+            lambda R: rank.alpharank(
+                R, population_size=20, max_iter=10_000, return_scores=True
+            ),
+        ),
         ("nash", "structural", lambda R: rank.nash(R, return_scores=True)),
-        ("rank_centrality", "exact", lambda R: rank.rank_centrality(R, return_scores=True)),
+        (
+            "rank_centrality",
+            "exact",
+            lambda R: rank.rank_centrality(R, return_scores=True),
+        ),
         ("serial_rank", "exact", lambda R: rank.serial_rank(R, return_scores=True)),
         ("hodge_rank", "exact", lambda R: rank.hodge_rank(R, return_scores=True)),
-        ("plackett_luce", "loose", lambda R: rank.plackett_luce(R, max_iter=80, return_scores=True)),
-        ("plackett_luce_map", "loose", lambda R: rank.plackett_luce_map(R, prior=1.0, max_iter=80, return_scores=True)),
-        ("davidson_luce", "loose", lambda R: rank.davidson_luce(R, max_iter=80, return_scores=True)),
-        ("davidson_luce_map", "loose", lambda R: rank.davidson_luce_map(R, prior=1.0, max_iter=80, return_scores=True)),
-        ("bradley_terry_luce", "loose", lambda R: rank.bradley_terry_luce(R, max_iter=80, return_scores=True)),
-        ("bradley_terry_luce_map", "loose", lambda R: rank.bradley_terry_luce_map(R, prior=1.0, max_iter=80, return_scores=True)),
+        (
+            "plackett_luce",
+            "loose",
+            lambda R: rank.plackett_luce(R, max_iter=80, return_scores=True),
+        ),
+        (
+            "plackett_luce_map",
+            "loose",
+            lambda R: rank.plackett_luce_map(
+                R, prior=1.0, max_iter=80, return_scores=True
+            ),
+        ),
+        (
+            "davidson_luce",
+            "loose",
+            lambda R: rank.davidson_luce(R, max_iter=80, return_scores=True),
+        ),
+        (
+            "davidson_luce_map",
+            "loose",
+            lambda R: rank.davidson_luce_map(
+                R, prior=1.0, max_iter=80, return_scores=True
+            ),
+        ),
+        (
+            "bradley_terry_luce",
+            "loose",
+            lambda R: rank.bradley_terry_luce(R, max_iter=80, return_scores=True),
+        ),
+        (
+            "bradley_terry_luce_map",
+            "loose",
+            lambda R: rank.bradley_terry_luce_map(
+                R, prior=1.0, max_iter=80, return_scores=True
+            ),
+        ),
     ]
 
     datasets = [
@@ -132,12 +296,11 @@ def build_fixtures():
     ]
     for name, kind, builder in binary_methods:
         for dslabel, R in datasets:
-            ranking, scores = builder(R)
             # D2 has two identical models; optimizer symmetry-breaking is
             # implementation-specific, so only require structure there for
             # optimizer-based methods.
             eff = "structural" if (kind == "loose" and dslabel == "D2") else kind
-            add(f"{name}@{dslabel}", ranking, scores, eff, R)
+            add_call(f"{name}@{dslabel}", eff, R, builder)
 
     # dynamic_irt takes a 2D matrix.
     for dslabel, M in [
@@ -145,9 +308,15 @@ def build_fixtures():
         ("D2", tie_heavy_matrix),
         ("D3", distinct_matrix),
     ]:
-        ranking, scores = rank.dynamic_irt(M, variant="linear", max_iter=60, return_scores=True)
         eff = "structural" if dslabel == "D2" else "loose"
-        add(f"dynamic_irt@{dslabel}", ranking, scores, eff, M)
+        add_call(
+            f"dynamic_irt@{dslabel}",
+            eff,
+            M,
+            lambda X: rank.dynamic_irt(
+                X, variant="linear", max_iter=60, return_scores=True
+            ),
+        )
 
     # bayes: multiclass weighted with shared R0 prior (its own input).
     ranking, scores = rank.bayes(R_multi, w=w, R0=R0_shared, return_scores=True)
@@ -168,24 +337,73 @@ def build_fixtures():
 
     D = distinct_R
     add_opt("borda_dense", lambda: rank.borda(D, method="dense", return_scores=True))
-    add_opt("minimax_wv", lambda: rank.minimax(D, variant="winning_votes", return_scores=True))
-    add_opt("schulze_ignore", lambda: rank.schulze(D, tie_policy="ignore", return_scores=True))
-    add_opt("nash_eq", lambda: rank.nash(D, score_type="equilibrium", return_scores=True))
-    add_opt("nash_adv", lambda: rank.nash(D, score_type="advantage_vs_equilibrium", return_scores=True))
+    add_opt(
+        "minimax_wv",
+        lambda: rank.minimax(D, variant="winning_votes", return_scores=True),
+    )
+    add_opt(
+        "schulze_ignore",
+        lambda: rank.schulze(D, tie_policy="ignore", return_scores=True),
+    )
+    add_opt(
+        "nash_eq", lambda: rank.nash(D, score_type="equilibrium", return_scores=True)
+    )
+    add_opt(
+        "nash_adv",
+        lambda: rank.nash(D, score_type="advantage_vs_equilibrium", return_scores=True),
+    )
     add_opt("glicko_c30", lambda: rank.glicko(D, c=30.0, return_scores=True))
-    add_opt("elo_draw_k16", lambda: rank.elo(D, tie_handling="draw", K=16.0, return_scores=True))
-    add_opt("trueskill_draw", lambda: rank.trueskill(D, tie_handling="draw", draw_margin=0.1, return_scores=True))
-    add_opt("hodge_decisive", lambda: rank.hodge_rank(D, weight_method="decisive", return_scores=True))
-    add_opt("hodge_logodds", lambda: rank.hodge_rank(D, pairwise_stat="log_odds", return_scores=True))
-    add_opt("rc_teleport", lambda: rank.rank_centrality(D, tie_handling="half", teleport=0.1, return_scores=True))
-    add_opt("rc_ignore_smooth", lambda: rank.rank_centrality(D, tie_handling="ignore", smoothing=1.0, return_scores=True))
-    add_opt("serial_sign", lambda: rank.serial_rank(D, comparison="sign", return_scores=True))
-    add_opt("bayes_q05_dense", lambda: rank.bayes(D, quantile=0.05, method="dense", return_scores=True))
-    add_opt("kemeny_not_tieaware", lambda: rank.kemeny_young(D, tie_aware=False, return_scores=True))
-    add_opt("rp_wv", lambda: rank.ranked_pairs(D, strength="winning_votes", return_scores=True))
+    add_opt(
+        "elo_draw_k16",
+        lambda: rank.elo(D, tie_handling="draw", K=16.0, return_scores=True),
+    )
+    add_opt(
+        "trueskill_draw",
+        lambda: rank.trueskill(
+            D, tie_handling="draw", draw_margin=0.1, return_scores=True
+        ),
+    )
+    add_opt(
+        "hodge_decisive",
+        lambda: rank.hodge_rank(D, weight_method="decisive", return_scores=True),
+    )
+    add_opt(
+        "hodge_logodds",
+        lambda: rank.hodge_rank(D, pairwise_stat="log_odds", return_scores=True),
+    )
+    add_opt(
+        "rc_teleport",
+        lambda: rank.rank_centrality(
+            D, tie_handling="half", teleport=0.1, return_scores=True
+        ),
+    )
+    add_opt(
+        "rc_ignore_smooth",
+        lambda: rank.rank_centrality(
+            D, tie_handling="ignore", smoothing=1.0, return_scores=True
+        ),
+    )
+    add_opt(
+        "serial_sign",
+        lambda: rank.serial_rank(D, comparison="sign", return_scores=True),
+    )
+    add_opt(
+        "bayes_q05_dense",
+        lambda: rank.bayes(D, quantile=0.05, method="dense", return_scores=True),
+    )
+    add_opt(
+        "kemeny_not_tieaware",
+        lambda: rank.kemeny_young(D, tie_aware=False, return_scores=True),
+    )
+    add_opt(
+        "rp_wv",
+        lambda: rank.ranked_pairs(D, strength="winning_votes", return_scores=True),
+    )
     add_opt("nanson_min", lambda: rank.nanson(D, rank_ties="min", return_scores=True))
     add_opt("pagerank_damp", lambda: rank.pagerank(D, damping=0.6, return_scores=True))
-    add_opt("bt_dense", lambda: rank.bradley_terry(D, method="dense", return_scores=True))
+    add_opt(
+        "bt_dense", lambda: rank.bradley_terry(D, method="dense", return_scores=True)
+    )
     add_opt("pl_avg", lambda: rank.plackett_luce(D, method="avg", return_scores=True))
 
     return {
