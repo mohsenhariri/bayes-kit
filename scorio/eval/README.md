@@ -15,13 +15,13 @@ We introduced `Bayes@N` and the `scorio.eval` interface in
 `mg_pass_at_k`. If you use Bayes@N or its uncertainty estimates, please cite this work:
 
 ```bibtex
-@inproceedings{hariri2026don,
-  title     = {Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation},
-  author    = {Hariri, Mohsen and Samandar, Amirhossein and Hinczewski, Michael and Chaudhary, Vipin},
-  booktitle = {The Fourteenth International Conference on Learning Representations},
-  year      = {2026},
-  url       = {https://openreview.net/forum?id=PTXi3Ef4sT},
-  doi       = {10.48550/arXiv.2510.04265}
+@inproceedings{hariri2026dont,
+  title={Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation},
+  author={Hariri, Mohsen and Samandar, Amirhossein and Hinczewski, Michael and Chaudhary, Vipin},
+  booktitle={The Fourteenth International Conference on Learning Representations},
+  year={2026},
+  url={https://openreview.net/forum?id=PTXi3Ef4sT},
+  doi={10.48550/arXiv.2510.04265}
 }
 ```
 
@@ -57,10 +57,10 @@ Notes:
 
 | `scorio.eval.[method_name]` | Returns | Method | Reference |
 | --- | --- | --- | --- |
-| `bayes` | `(mu, sigma)` | Bayes@N posterior score | [Paper](https://openreview.net/forum?id=PTXi3Ef4sT) · [API](./bayes.py) · [BibTeX](#bibtex-hariri2026don) |
-| `bayes_ci` | `(mu, sigma, lo, hi)` | Bayes@N with a credible interval | [Paper](https://openreview.net/forum?id=PTXi3Ef4sT) · [API](./bayes.py) · [BibTeX](#bibtex-hariri2026don) |
-| `avg` | `(average, sigma)` | Avg@N with uncertainty on the average scale | [Paper](https://openreview.net/forum?id=PTXi3Ef4sT) · [API](./avg.py) · [BibTeX](#bibtex-hariri2026don) |
-| `avg_ci` | `(average, sigma, lo, hi)` | Avg@N with a credible interval | [Paper](https://openreview.net/forum?id=PTXi3Ef4sT) · [API](./avg.py) · [BibTeX](#bibtex-hariri2026don) |
+| `bayes` | `(mu, sigma)` | Bayes@N posterior score | [Paper](https://openreview.net/forum?id=PTXi3Ef4sT) · [API](./bayes.py) · [BibTeX](#bibtex-hariri2026dont) |
+| `bayes_ci` | `(mu, sigma, lo, hi)` | Bayes@N with a credible interval | [Paper](https://openreview.net/forum?id=PTXi3Ef4sT) · [API](./bayes.py) · [BibTeX](#bibtex-hariri2026dont) |
+| `avg` | `(average, sigma)` | Avg@N with uncertainty on the average scale | [Paper](https://openreview.net/forum?id=PTXi3Ef4sT) · [API](./avg.py) · [BibTeX](#bibtex-hariri2026dont) |
+| `avg_ci` | `(average, sigma, lo, hi)` | Avg@N with a credible interval | [Paper](https://openreview.net/forum?id=PTXi3Ef4sT) · [API](./avg.py) · [BibTeX](#bibtex-hariri2026dont) |
 
 ## Pass and Threshold Metrics
 
@@ -97,17 +97,17 @@ Notes:
 
 ## References
 
-<a id="bibtex-hariri2026don"></a>
-### `hariri2026don`
+<a id="bibtex-hariri2026dont"></a>
+### `hariri2026dont`
 
 ```bibtex
-@inproceedings{hariri2026don,
-  title     = {Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation},
-  author    = {Hariri, Mohsen and Samandar, Amirhossein and Hinczewski, Michael and Chaudhary, Vipin},
-  booktitle = {The Fourteenth International Conference on Learning Representations},
-  year      = {2026},
-  url       = {https://openreview.net/forum?id=PTXi3Ef4sT},
-  doi       = {10.48550/arXiv.2510.04265}
+@inproceedings{hariri2026dont,
+  title={Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation},
+  author={Hariri, Mohsen and Samandar, Amirhossein and Hinczewski, Michael and Chaudhary, Vipin},
+  booktitle={The Fourteenth International Conference on Learning Representations},
+  year={2026},
+  url={https://openreview.net/forum?id=PTXi3Ef4sT},
+  doi={10.48550/arXiv.2510.04265}
 }
 ```
 

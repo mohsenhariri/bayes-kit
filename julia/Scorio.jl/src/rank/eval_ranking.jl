@@ -61,7 +61,8 @@ by posterior mean `mu`.
 # References
 Hariri, M., Samandar, A., Hinczewski, M., & Chaudhary, V. (2026).
 Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation.
-*arXiv:2510.04265*. https://arxiv.org/abs/2510.04265
+*The Fourteenth International Conference on Learning Representations*.
+https://openreview.net/forum?id=PTXi3Ef4sT
 
 # Formula
 For each model `l`, let `(mu_l, sigma_l) = Scorio.bayes(R_l, w, R0_l)`.

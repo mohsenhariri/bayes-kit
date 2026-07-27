@@ -2,7 +2,8 @@
  * Bayes@N family — Bayesian posterior mean and uncertainty for repeated
  * categorical outcomes with an optional prior. Port of `scorio/eval/bayes.py`.
  *
- * Reference: Hariri et al. (2026), arXiv:2510.04265.
+ * Reference: Hariri et al. (2026), "Don't Pass@k: A Bayesian Framework for
+ * Large Language Model Evaluation," ICLR 2026.
  */
 
 import { normalCredibleInterval, type Bounds } from "./internal/ci.js";

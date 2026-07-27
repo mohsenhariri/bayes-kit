@@ -8,8 +8,8 @@ Performance evaluation using the Bayes@N framework.
 # References
 Hariri, M., Samandar, A., Hinczewski, M., & Chaudhary, V. (2026).
 Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation.
-*arXiv preprint arXiv:2510.04265*.
-https://arxiv.org/abs/2510.04265
+*The Fourteenth International Conference on Learning Representations*.
+https://openreview.net/forum?id=PTXi3Ef4sT
 
 # Arguments
 - `R::Union{AbstractVector, AbstractMatrix}`:
@@ -172,8 +172,8 @@ Bayes@N posterior summary with a normal-approximation credible interval.
 # References
 Hariri, M., Samandar, A., Hinczewski, M., & Chaudhary, V. (2026).
 Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation.
-*arXiv preprint arXiv:2510.04265*.
-https://arxiv.org/abs/2510.04265
+*The Fourteenth International Conference on Learning Representations*.
+https://openreview.net/forum?id=PTXi3Ef4sT
 
 # Arguments
 - `R::Union{AbstractVector, AbstractMatrix}`:

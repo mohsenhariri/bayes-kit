@@ -91,7 +91,8 @@ class EmpiricalPrior(Prior):
     References:
         Hariri, M., Samandar, A., Hinczewski, M., & Chaudhary, V. (2026).
         Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation.
-        https://arxiv.org/abs/2510.04265
+        *The Fourteenth International Conference on Learning Representations*.
+        https://openreview.net/forum?id=PTXi3Ef4sT
 
     Args:
         R0: Prior outcomes with shape ``(L, M, D)`` or ``(L, M)``.

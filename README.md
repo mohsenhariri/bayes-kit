@@ -32,7 +32,7 @@
 
 ## News
 
-- **April 2026** 🎉: Our ranking paper ["Ranking Reasoning LLMs under Test-Time Scaling"](https://arxiv.org/abs/2603.10960) has been accepted to **ACL 2026 Main Conference**!
+- **April 2026** 🎉: Our ranking paper ["Ranking Reasoning LLMs under Test-Time Scaling"](https://aclanthology.org/2026.acl-long.1544/) has been accepted to **ACL 2026 Main Conference**!
 
 - **February 2026** 🎉: Our paper ["Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation"](https://iclr.cc/virtual/2026/poster/10009669) has been accepted to **ICLR 2026**!
 
@@ -192,7 +192,7 @@ If you use Scorio in your research, please cite the relevant papers:
 ### Bayesian Evaluation Framework
 
 ```bibtex
-@inproceedings{hariri2026don,
+@inproceedings{hariri2026dont,
   title={Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation},
   author={Hariri, Mohsen and Samandar, Amirhossein and Hinczewski, Michael and Chaudhary, Vipin},
   booktitle={The Fourteenth International Conference on Learning Representations},
@@ -205,13 +205,15 @@ If you use Scorio in your research, please cite the relevant papers:
 ### Ranking Methods
 
 ```bibtex
-@article{hariri2026ranking,
-  title={Ranking Reasoning LLMs under Test-Time Scaling},
+@inproceedings{hariri2026ranking,
+  title={Ranking Reasoning {LLM}s under Test-Time Scaling},
   author={Hariri, Mohsen and Hinczewski, Michael and Ma, Jing and Chaudhary, Vipin},
-  journal={arXiv preprint arXiv:2603.10960},
+  booktitle={Proceedings of the 64th Annual Meeting of the {A}ssociation for {C}omputational {L}inguistics (Volume 1: Long Papers)},
   year={2026},
-  doi={10.48550/arXiv.2603.10960},
-  url={https://arxiv.org/abs/2603.10960}
+  pages={33437--33478},
+  publisher={Association for Computational Linguistics},
+  doi={10.18653/v1/2026.acl-long.1544},
+  url={https://aclanthology.org/2026.acl-long.1544/}
 }
 ```
 
@@ -230,4 +232,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Issues**: [github.com/mohsenhariri/scorio/issues](https://github.com/mohsenhariri/scorio/issues)
 - **Papers**:
   - [Don't Pass@k (ICLR 2026)](https://iclr.cc/virtual/2026/poster/10009669) | [arXiv](https://arxiv.org/abs/2510.04265)
-  - [Ranking Reasoning LLMs](https://arxiv.org/abs/2603.10960)
+  - [Ranking Reasoning LLMs (ACL 2026)](https://aclanthology.org/2026.acl-long.1544/) | [arXiv](https://arxiv.org/abs/2603.10960)

@@ -15,8 +15,8 @@ version: 0.2.2
 url: "https://github.com/mohsenhariri/scorio"
 
 preferred-citation:
-  type: article
-  title: "Don’t Pass@k: A Bayesian Framework for Large Language Model Evaluation"
+  type: conference-paper
+  title: "Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation"
   authors:
     - family-names: Hariri
       given-names: Mohsen
@@ -27,5 +27,6 @@ preferred-citation:
     - family-names: Chaudhary
       given-names: Vipin
   doi: 10.48550/arXiv.2510.04265
-  url: "https://arxiv.org/abs/2510.04265"
+  collection-title: "The Fourteenth International Conference on Learning Representations"
+  url: "https://openreview.net/forum?id=PTXi3Ef4sT"
   year: 2026

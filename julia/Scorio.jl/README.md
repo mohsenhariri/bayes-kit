@@ -1,6 +1,6 @@
 # Scorio.jl
 
-`Scorio.jl` is a Julia implementation of the Bayes@N framework introduced in [Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation](https://arxiv.org/abs/2510.04265)
+`Scorio.jl` is a Julia implementation of the Bayes@N framework introduced in [Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation](https://openreview.net/forum?id=PTXi3Ef4sT)
 
 [![arXiv](https://img.shields.io/badge/arXiv-2510.04265-b31b1b.svg)](https://arxiv.org/abs/2510.04265)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](#license)
@@ -127,7 +127,7 @@ If you use `Scorio.jl` or Scorio in your research, please cite the relevant pape
 ### Bayesian Evaluation Framework
 
 ```bibtex
-@inproceedings{hariri2026don,
+@inproceedings{hariri2026dont,
   title={Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation},
   author={Hariri, Mohsen and Samandar, Amirhossein and Hinczewski, Michael and Chaudhary, Vipin},
   booktitle={The Fourteenth International Conference on Learning Representations},
@@ -140,13 +140,15 @@ If you use `Scorio.jl` or Scorio in your research, please cite the relevant pape
 ### Ranking Methods
 
 ```bibtex
-@article{hariri2026ranking,
-  title={Ranking Reasoning LLMs under Test-Time Scaling},
+@inproceedings{hariri2026ranking,
+  title={Ranking Reasoning {LLM}s under Test-Time Scaling},
   author={Hariri, Mohsen and Hinczewski, Michael and Ma, Jing and Chaudhary, Vipin},
-  journal={arXiv preprint arXiv:2603.10960},
+  booktitle={Proceedings of the 64th Annual Meeting of the {A}ssociation for {C}omputational {L}inguistics (Volume 1: Long Papers)},
   year={2026},
-  doi={10.48550/arXiv.2603.10960},
-  url={https://arxiv.org/abs/2603.10960}
+  pages={33437--33478},
+  publisher={Association for Computational Linguistics},
+  doi={10.18653/v1/2026.acl-long.1544},
+  url={https://aclanthology.org/2026.acl-long.1544/}
 }
 ```
 

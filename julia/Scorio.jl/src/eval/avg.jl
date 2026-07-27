@@ -26,8 +26,8 @@ Average score with Bayes-scaled uncertainty (Avg@N).
 # References
 Hariri, M., Samandar, A., Hinczewski, M., & Chaudhary, V. (2026).
 Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation.
-*arXiv preprint arXiv:2510.04265*.
-https://arxiv.org/abs/2510.04265
+*The Fourteenth International Conference on Learning Representations*.
+https://openreview.net/forum?id=PTXi3Ef4sT
 
 # Arguments
 - `R::Union{AbstractVector, AbstractMatrix}`:
@@ -102,8 +102,8 @@ Avg@N plus Bayesian uncertainty and normal-approximation credible interval.
 # References
 Hariri, M., Samandar, A., Hinczewski, M., & Chaudhary, V. (2026).
 Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation.
-*arXiv preprint arXiv:2510.04265*.
-https://arxiv.org/abs/2510.04265
+*The Fourteenth International Conference on Learning Representations*.
+https://openreview.net/forum?id=PTXi3Ef4sT
 
 # Arguments
 - `R::Union{AbstractVector, AbstractMatrix}`:

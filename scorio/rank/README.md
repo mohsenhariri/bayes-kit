@@ -14,17 +14,15 @@ https://github.com/user-attachments/assets/b5bc4ca1-a62b-412f-b6ec-ac7eb58481c4
 If you use these ranking APIs, please cite this work:
 
 ```bibtex
-@inproceedings{hariri-etal-2026-ranking,
-  title     = {Ranking Reasoning {LLM}s under Test-Time Scaling},
-  author    = {Hariri, Mohsen and Hinczewski, Michael and Ma, Jing and Chaudhary, Vipin},
-  booktitle = {Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)},
-  month     = jul,
-  year      = {2026},
-  address   = {San Diego, California, United States},
-  publisher = {Association for Computational Linguistics},
-  pages     = {33437--33478},
-  doi       = {10.18653/v1/2026.acl-long.1544},
-  url       = {https://aclanthology.org/2026.acl-long.1544/}
+@inproceedings{hariri2026ranking,
+  title={Ranking Reasoning {LLM}s under Test-Time Scaling},
+  author={Hariri, Mohsen and Hinczewski, Michael and Ma, Jing and Chaudhary, Vipin},
+  booktitle={Proceedings of the 64th Annual Meeting of the {A}ssociation for {C}omputational {L}inguistics (Volume 1: Long Papers)},
+  year={2026},
+  pages={33437--33478},
+  publisher={Association for Computational Linguistics},
+  doi={10.18653/v1/2026.acl-long.1544},
+  url={https://aclanthology.org/2026.acl-long.1544/}
 }
 ```
 
@@ -73,7 +71,7 @@ Notes:
 | `scorio.rank.[method_name]` | Paper | Reference |
 | --- | --- | --- |
 | `avg` | - | [API](./eval_ranking.py) |
-| `bayes` | [Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation](https://openreview.net/forum?id=PTXi3Ef4sT) | [API](./eval_ranking.py) · [BibTeX](#bibtex-hariri2026don) |
+| `bayes` | [Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation](https://openreview.net/forum?id=PTXi3Ef4sT) | [API](./eval_ranking.py) · [BibTeX](#bibtex-hariri2026dont) |
 | `pass_at_k` | [Evaluating Large Language Models Trained on Code](https://arxiv.org/abs/2107.03374) | [API](./eval_ranking.py) · [BibTeX](#bibtex-chen2021evaluating) |
 | `pass_hat_k` | tau-bench [`pass^k`](https://arxiv.org/abs/2406.12045): all `k` draws succeed | [API](./eval_ranking.py) · [BibTeX](#bibtex-yao2024taubench) |
 | `g_pass_at_k_tau` | [Are Your LLMs Capable of Stable Reasoning?](https://aclanthology.org/2025.findings-acl.905/) | [API](./eval_ranking.py) · [BibTeX](#bibtex-liu2025stable-reasoning) |
@@ -229,17 +227,17 @@ Notes:
 }
 ```
 
-<a id="bibtex-hariri2026don"></a>
-### `hariri2026don`
+<a id="bibtex-hariri2026dont"></a>
+### `hariri2026dont`
 
 ```bibtex
-@inproceedings{hariri2026don,
-  title     = {Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation},
-  author    = {Hariri, Mohsen and Samandar, Amirhossein and Hinczewski, Michael and Chaudhary, Vipin},
-  booktitle = {The Fourteenth International Conference on Learning Representations},
-  year      = {2026},
-  url       = {https://openreview.net/forum?id=PTXi3Ef4sT},
-  doi       = {10.48550/arXiv.2510.04265}
+@inproceedings{hariri2026dont,
+  title={Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation},
+  author={Hariri, Mohsen and Samandar, Amirhossein and Hinczewski, Michael and Chaudhary, Vipin},
+  booktitle={The Fourteenth International Conference on Learning Representations},
+  year={2026},
+  url={https://openreview.net/forum?id=PTXi3Ef4sT},
+  doi={10.48550/arXiv.2510.04265}
 }
 ```
 
