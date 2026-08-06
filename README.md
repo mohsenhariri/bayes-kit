@@ -7,14 +7,14 @@
 </h1>
 
 <p align="center">
-  <a href="https://arxiv.org/abs/2510.04265"><img alt="arXiv: Bayes Evaluation" src="https://img.shields.io/badge/arXiv-2510.04265-b31b1b.svg"></a>
-  <a href="https://arxiv.org/abs/2603.10960"><img alt="arXiv: Bayes Ranking" src="https://img.shields.io/badge/arXiv-2603.10960-b31b1b.svg"></a>
+  <a href="https://arxiv.org/abs/2510.04265"><img alt="ICLR 2026" src="https://img.shields.io/badge/ICLR-2026-blue.svg"></a>
+  <a href="https://arxiv.org/abs/2603.10960"><img alt="ACL 2026" src="https://img.shields.io/badge/ACL-2026-blue.svg"></a>
   <a href="https://arxiv.org/abs/2608.04001"><img alt="arXiv: Test-Time Scaling" src="https://img.shields.io/badge/arXiv-2608.04001-b31b1b.svg"></a>
-  <a href="https://iclr.cc/virtual/2026/poster/10009669"><img alt="ICLR 2026" src="https://img.shields.io/badge/ICLR-2026-blue.svg"></a>
-  <a href="https://aclanthology.org/2026.acl-long.1544/"><img alt="ACL 2026" src="https://img.shields.io/badge/ACL-2026-blue.svg"></a>
   <a href="#license"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg"></a>
   <a href="https://www.python.org/downloads/"><img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10+-blue.svg"></a>
+  <a href="https://pypi.org/project/scorio/"><img alt="PyPI package" src="https://img.shields.io/pypi/v/scorio.svg"></a>
   <a href="https://julialang.org/downloads/"><img alt="Julia 1.6+" src="https://img.shields.io/badge/julia-1.6+-9558B2.svg"></a>
+  <a href="https://www.npmjs.com/package/scorio"><img alt="npm package" src="https://img.shields.io/npm/v/scorio.svg"></a>
   <a href="https://scorio.readthedocs.io/en/latest/"><img alt="Python Docs" src="https://readthedocs.org/projects/scorio/badge/?version=latest"></a>
   <a href="https://mohsenhariri.github.io/scorio/julia/"><img alt="Julia Docs" src="https://img.shields.io/badge/docs-Julia-9558B2.svg"></a>
 </p>
@@ -36,18 +36,21 @@
 
 - **August 2026**: Preprint of our paper ["Test-Time Scaling in Reasoning LLMs: Inference Regimes, Evaluation, and Reproducibility"](https://arxiv.org/abs/2608.04001) is available. We will release reasoning traces and evaluation scripts soon.
 
+- **July 2026** 📦: [Scorio](https://www.npmjs.com/package/scorio) is now available on **npm**. Read [our blog post](https://mohsenhariri.github.io/posts.html).
+
 - **April 2026** 🎉: Our ranking paper ["Ranking Reasoning LLMs under Test-Time Scaling"](https://aclanthology.org/2026.acl-long.1544/) has been accepted to **ACL 2026 Main Conference**!
 
-- **February 2026** 🎉: Our paper ["Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation"](https://iclr.cc/virtual/2026/poster/10009669) has been accepted to **ICLR 2026**!
+- **January 2026** 🎉: Our paper ["Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation"](https://iclr.cc/virtual/2026/poster/10009669) has been accepted to **ICLR 2026**!
 
 ---
 
 ## Packages
 
-This repository contains two packages:
+This repository contains three packages:
 
-1. **`scorio`** - Python implementation
-2. **`Scorio.jl`** - Julia implementation
+1. **[`scorio`](scorio/)** - Python implementation
+2. **[`Scorio.jl`](julia/Scorio.jl/)** - Julia implementation
+3. **[`scorio`](js/)** - JS/TS implementation
 
 ---
 
@@ -61,7 +64,7 @@ This repository contains two packages:
 # Install from PyPI
 pip install scorio
 
-# Install latest from GitHub 
+# Install latest from GitHub
 pip install "git+https://github.com/mohsenhariri/scorio.git"
 
 # Install a specific tag
@@ -169,7 +172,7 @@ Bayesian performance evaluation with uncertainty quantification using the Bayes@
 
 - **Categories**: Encode outcomes per trial as integers in `{0, ..., C}`
 - **Weights**: Choose rubric weights `w` of length `C+1` (e.g., `[0, 1]` for binary outcomes)
-- **Shapes**: 
+- **Shapes**:
   - `R` is `M × N` (M questions, N trials)
   - `R0` is `M × D` (M questions, D prior trials)
   - Both must share the same `M` and category set
@@ -184,6 +187,9 @@ Bayesian performance evaluation with uncertainty quantification using the Bayes@
 
 ### Julia
 - Julia 1.6 or higher
+
+### JavaScript
+- Node.js 18 or higher
 
 ---
 
@@ -241,7 +247,6 @@ If you use Scorio in your research, please cite the relevant papers:
   url           = {https://arxiv.org/abs/2608.04001}
 }
 ```
-
 
 ## License
 
