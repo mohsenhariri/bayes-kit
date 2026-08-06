@@ -248,6 +248,18 @@ If you use Scorio in your research, please cite the relevant papers:
 }
 ```
 
+## Contributing
+
+We welcome contributions from the community! To report a bug, propose a feature, or add an evaluation, ranking, or aggregation method, please see our [Contributing Guide](https://github.com/mohsenhariri/scorio/blob/main/CONTRIBUTING.md).
+
+We’ll add guidelines for coding agents (AGENTS.md/CLAUDE.md) soon.
+
+<p align="center">
+  <a href="https://github.com/mohsenhariri/scorio/graphs/contributors">
+    <img src="https://contrib.rocks/image?repo=mohsenhariri/scorio" alt="Scorio contributors">
+  </a>
+</p>
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](https://github.com/mohsenhariri/scorio/blob/main/LICENSE) file for details.
