@@ -252,13 +252,38 @@ If you use Scorio in your research, please cite the relevant papers:
 
 We welcome contributions from the community! To report a bug, propose a feature, or add an evaluation, ranking, or aggregation method, please see our [Contributing Guide](https://github.com/mohsenhariri/scorio/blob/main/CONTRIBUTING.md).
 
-We’ll add guidelines for coding agents (AGENTS.md/CLAUDE.md) soon.
+We'll add guidelines for coding agents (AGENTS.md/CLAUDE.md) soon.
 
-<p align="center">
-  <a href="https://github.com/mohsenhariri/scorio/graphs/contributors">
-    <img src="https://contrib.rocks/image?repo=mohsenhariri/scorio" alt="Scorio contributors">
-  </a>
-</p>
+<table>
+  <tr>
+    <td align="center">
+      <a href="https://github.com/mohsenhariri">
+        <img src="https://avatars.githubusercontent.com/u/55762597?s=96&amp;v=4" width="80" height="80" alt="@mohsenhariri"><br>
+        <sub><b>@mohsenhariri</b></sub>
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://github.com/HarryHills3588">
+        <img src="https://avatars.githubusercontent.com/u/118565544?s=96&amp;v=4" width="80" height="80" alt="@HarryHills3588"><br>
+        <sub><b>@HarryHills3588</b></sub>
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://github.com/mecaneer23">
+        <img src="https://avatars.githubusercontent.com/u/74385377?s=96&amp;v=4" width="80" height="80" alt="@mecaneer23"><br>
+        <sub><b>@mecaneer23</b></sub>
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://github.com/Amirsamandar">
+        <img src="https://avatars.githubusercontent.com/u/90907234?s=96&amp;v=4" width="80" height="80" alt="@Amirsamandar"><br>
+        <sub><b>@Amirsamandar</b></sub>
+      </a>
+    </td>
+  </tr>
+</table>
+
+See the complete, current list on GitHub’s [Contributors page](https://github.com/mohsenhariri/scorio/graphs/contributors).
 
 ## License
 
