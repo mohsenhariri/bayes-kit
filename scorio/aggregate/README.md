@@ -5,6 +5,24 @@ when to stop sampling or generation. Offline selectors accept `(N,)` for one
 question or `(M, N)` for a batch, with questions in rows and sampled responses
 in columns.
 
+We introduce the `scorio.aggregate` APIs in
+[Test-Time Scaling in Reasoning LLMs: Inference Regimes, Evaluation, and Reproducibility](https://arxiv.org/abs/2608.04001).
+
+If you use these aggregation APIs, please cite this work:
+
+```bibtex
+@misc{hariri2026testtime,
+  title         = {Test-Time Scaling in Reasoning {LLM}s: Inference Regimes, Evaluation, and Reproducibility},
+  author        = {Hariri, Mohsen and Chen, Weicong and Shahini, Nahal and Singh, Vikash and Ye, Kai and Samandar, Amirhossein and Ganguly, Debargha and Sankar, Sreehari and Zhang, Yanyan and Wang, Shouren and Peng, Jerry and Zhang, Biyao and Hinczewski, Michael and Chaudhary, Vipin},
+  year          = {2026},
+  eprint        = {2608.04001},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.LG},
+  doi           = {10.48550/arXiv.2608.04001},
+  url           = {https://arxiv.org/abs/2608.04001}
+}
+```
+
 Notes:
 
 - Import the API as `from scorio import aggregate` or `from scorio import agg`.

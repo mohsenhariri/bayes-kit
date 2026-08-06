@@ -26,7 +26,10 @@ preferred-citation:
       given-names: Michael
     - family-names: Chaudhary
       given-names: Vipin
-  doi: 10.48550/arXiv.2510.04265
-  collection-title: "The Fourteenth International Conference on Learning Representations"
-  url: "https://openreview.net/forum?id=PTXi3Ef4sT"
+  collection-title: "International Conference on Learning Representations"
+  url: "https://proceedings.iclr.cc/paper_files/paper/2026/file/f04edfc65463d020629673a4bc4c58e7-Paper-Conference.pdf"
+  identifiers:
+    - type: url
+      value: "https://arxiv.org/abs/2510.04265"
+      description: "Latest arXiv version"
   year: 2026

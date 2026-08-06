@@ -6,22 +6,24 @@ each column is one sampled trial. A one-dimensional input is treated as a
 single question. The geometric and spectrum APIs are intentionally omitted
 from this reference.
 
+We introduced `Bayes@N` and the `scorio.eval` interface in
+[Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation](https://arxiv.org/abs/2510.04265) (ICLR 2026).
+
 https://github.com/user-attachments/assets/7cb72b44-7e24-40f5-b198-4c102fe2d184
 
-We introduced `Bayes@N` and the `scorio.eval` interface in
-[Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation](https://openreview.net/forum?id=PTXi3Ef4sT)
-(ICLR 2026). Its API table covers `bayes`, `bayes_ci`, `avg_ci`,
-`pass_at_k`, `pass_at_k_ci`, `pass_hat_k`, `g_pass_at_k_tau`, and
-`mg_pass_at_k`. If you use Bayes@N or its uncertainty estimates, please cite this work:
+If you use the evaluation APIs, please cite this work:
 
 ```bibtex
 @inproceedings{hariri2026dont,
   title={Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation},
   author={Hariri, Mohsen and Samandar, Amirhossein and Hinczewski, Michael and Chaudhary, Vipin},
-  booktitle={The Fourteenth International Conference on Learning Representations},
+  booktitle={International Conference on Learning Representations},
   year={2026},
-  url={https://openreview.net/forum?id=PTXi3Ef4sT},
-  doi={10.48550/arXiv.2510.04265}
+  url={https://proceedings.iclr.cc/paper_files/paper/2026/file/f04edfc65463d020629673a4bc4c58e7-Paper-Conference.pdf},
+  eprint={2510.04265},
+  archivePrefix={arXiv},
+  primaryClass={cs.AI},
+  note={Latest version available at \url{https://arxiv.org/abs/2510.04265}}
 }
 ```
 

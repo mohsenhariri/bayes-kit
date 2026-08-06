@@ -6,8 +6,7 @@ categorical outcomes. Several methods adapt their source model by constructing
 pairwise or setwise outcomes from each question-trial event.
 
 We introduce the `scorio.rank` APIs in
-[Ranking Reasoning LLMs under Test-Time Scaling](https://aclanthology.org/2026.acl-long.1544/)
-(ACL 2026).
+[Ranking Reasoning LLMs under Test-Time Scaling](https://aclanthology.org/2026.acl-long.1544/) (ACL 2026).
 
 https://github.com/user-attachments/assets/b5bc4ca1-a62b-412f-b6ec-ac7eb58481c4
 
@@ -22,7 +21,11 @@ If you use these ranking APIs, please cite this work:
   pages={33437--33478},
   publisher={Association for Computational Linguistics},
   doi={10.18653/v1/2026.acl-long.1544},
-  url={https://aclanthology.org/2026.acl-long.1544/}
+  url={https://aclanthology.org/2026.acl-long.1544/},
+  eprint={2603.10960},
+  archivePrefix={arXiv},
+  primaryClass={cs.LG},
+  note={Latest version available at \url{https://arxiv.org/abs/2603.10960}}
 }
 ```
 

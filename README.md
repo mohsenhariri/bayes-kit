@@ -9,7 +9,9 @@
 <p align="center">
   <a href="https://arxiv.org/abs/2510.04265"><img alt="arXiv: Bayes Evaluation" src="https://img.shields.io/badge/arXiv-2510.04265-b31b1b.svg"></a>
   <a href="https://arxiv.org/abs/2603.10960"><img alt="arXiv: Bayes Ranking" src="https://img.shields.io/badge/arXiv-2603.10960-b31b1b.svg"></a>
+  <a href="https://arxiv.org/abs/2608.04001"><img alt="arXiv: Test-Time Scaling" src="https://img.shields.io/badge/arXiv-2608.04001-b31b1b.svg"></a>
   <a href="https://iclr.cc/virtual/2026/poster/10009669"><img alt="ICLR 2026" src="https://img.shields.io/badge/ICLR-2026-blue.svg"></a>
+  <a href="https://aclanthology.org/2026.acl-long.1544/"><img alt="ACL 2026" src="https://img.shields.io/badge/ACL-2026-blue.svg"></a>
   <a href="#license"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg"></a>
   <a href="https://www.python.org/downloads/"><img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10+-blue.svg"></a>
   <a href="https://julialang.org/downloads/"><img alt="Julia 1.6+" src="https://img.shields.io/badge/julia-1.6+-9558B2.svg"></a>
@@ -32,11 +34,11 @@
 
 ## News
 
+- **August 2026**: Preprint of our paper ["Test-Time Scaling in Reasoning LLMs: Inference Regimes, Evaluation, and Reproducibility"](https://arxiv.org/abs/2608.04001) is available. We will release reasoning traces and evaluation scripts soon.
+
 - **April 2026** 🎉: Our ranking paper ["Ranking Reasoning LLMs under Test-Time Scaling"](https://aclanthology.org/2026.acl-long.1544/) has been accepted to **ACL 2026 Main Conference**!
 
 - **February 2026** 🎉: Our paper ["Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation"](https://iclr.cc/virtual/2026/poster/10009669) has been accepted to **ICLR 2026**!
-
-- **April 2026** 🔜: Reasoning traces will be released soon.
 
 ---
 
@@ -195,10 +197,13 @@ If you use Scorio in your research, please cite the relevant papers:
 @inproceedings{hariri2026dont,
   title={Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation},
   author={Hariri, Mohsen and Samandar, Amirhossein and Hinczewski, Michael and Chaudhary, Vipin},
-  booktitle={The Fourteenth International Conference on Learning Representations},
+  booktitle={International Conference on Learning Representations},
   year={2026},
-  url={https://openreview.net/forum?id=PTXi3Ef4sT},
-  doi={10.48550/arXiv.2510.04265}
+  url={https://proceedings.iclr.cc/paper_files/paper/2026/file/f04edfc65463d020629673a4bc4c58e7-Paper-Conference.pdf},
+  eprint={2510.04265},
+  archivePrefix={arXiv},
+  primaryClass={cs.AI},
+  note={Latest version available at \url{https://arxiv.org/abs/2510.04265}}
 }
 ```
 
@@ -213,9 +218,30 @@ If you use Scorio in your research, please cite the relevant papers:
   pages={33437--33478},
   publisher={Association for Computational Linguistics},
   doi={10.18653/v1/2026.acl-long.1544},
-  url={https://aclanthology.org/2026.acl-long.1544/}
+  url={https://aclanthology.org/2026.acl-long.1544/},
+  eprint={2603.10960},
+  archivePrefix={arXiv},
+  primaryClass={cs.LG},
+  note={Latest version available at \url{https://arxiv.org/abs/2603.10960}}
 }
 ```
+
+
+### Aggregation Methods
+
+```bibtex
+@misc{hariri2026testtime,
+  title         = {Test-Time Scaling in Reasoning {LLM}s: Inference Regimes, Evaluation, and Reproducibility},
+  author        = {Hariri, Mohsen and Chen, Weicong and Shahini, Nahal and Singh, Vikash and Ye, Kai and Samandar, Amirhossein and Ganguly, Debargha and Sankar, Sreehari and Zhang, Yanyan and Wang, Shouren and Peng, Jerry and Zhang, Biyao and Hinczewski, Michael and Chaudhary, Vipin},
+  year          = {2026},
+  eprint        = {2608.04001},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.LG},
+  doi           = {10.48550/arXiv.2608.04001},
+  url           = {https://arxiv.org/abs/2608.04001}
+}
+```
+
 
 ## License
 
@@ -233,3 +259,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Papers**:
   - [Don't Pass@k (ICLR 2026)](https://iclr.cc/virtual/2026/poster/10009669) | [arXiv](https://arxiv.org/abs/2510.04265)
   - [Ranking Reasoning LLMs (ACL 2026)](https://aclanthology.org/2026.acl-long.1544/) | [arXiv](https://arxiv.org/abs/2603.10960)
+  - [Test-Time Scaling in Reasoning LLMs](https://arxiv.org/abs/2608.04001)
