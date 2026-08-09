@@ -189,13 +189,12 @@ token index at which generation should stop, or `None` to finish the trace.
 ### `fu2025deep`
 
 ```bibtex
-@article{fu2025deep,
-  title   = {Deep Think with Confidence},
-  author  = {Fu, Yichao and Wang, Xuewei and Tian, Yuandong and Zhao, Jiawei},
-  journal = {arXiv preprint arXiv:2508.15260},
-  year    = {2025},
-  doi     = {10.48550/arXiv.2508.15260},
-  url     = {https://arxiv.org/abs/2508.15260}
+@inproceedings{fu2026deep,
+  title={Deep Think with Confidence},
+  author={Yichao Fu and Xuewei Wang and Hao Zhang and Yuandong Tian and Jiawei Zhao},
+  booktitle={The Fourteenth International Conference on Learning Representations},
+  year={2026},
+  url={https://openreview.net/forum?id=8LqHs0KIM7}
 }
 ```
 
@@ -322,13 +321,13 @@ token index at which generation should stop, or `None` to finish the trace.
 ### `rakhsha2025majority`
 
 ```bibtex
-@article{rakhsha2025majority,
-  title   = {Majority of the Bests: Improving Best-of-{N} via Bootstrapping},
-  author  = {Rakhsha, Amin and Madan, Kanika and Zhang, Tianyu and Farahmand, Amir-massoud and Khasahmadi, Amir},
-  journal = {arXiv preprint arXiv:2511.18630},
-  year    = {2025},
-  doi     = {10.48550/arXiv.2511.18630},
-  url     = {https://arxiv.org/abs/2511.18630}
+@inproceedings{rakhsha2025majority,
+ author = {Rakhsha, Amin and Madan, Kanika and Zhang, Tianyu and Farahmand, Amir-massoud and Khasahmadi, Amir},
+ booktitle = {Advances in Neural Information Processing Systems},
+ doi = {10.52202/085713-1268},
+ title = {Majority of the Bests: Improving Best-of-N via Bootstrapping},
+ url = {https://proceedings.neurips.cc/paper_files/paper/2025/file/36556567e8437f137da23047309155dd-Paper-Conference.pdf},
+ year = {2025}
 }
 ```
 
@@ -336,13 +335,12 @@ token index at which generation should stop, or `None` to finish the trace.
 ### `di2025best`
 
 ```bibtex
-@article{di2025best,
-  title   = {Best-of-Majority: Minimax-Optimal Strategy for Pass@$k$ Inference Scaling},
-  author  = {Di, Qiwei and Ji, Kaixuan and Li, Xuheng and Zhao, Heyang and Gu, Quanquan},
-  journal = {arXiv preprint arXiv:2510.03199},
-  year    = {2025},
-  doi     = {10.48550/arXiv.2510.03199},
-  url     = {https://arxiv.org/abs/2510.03199}
+@inproceedings{di2026bestofmajority,
+  title={Best-of-Majority: Minimax-Optimal Strategy for Pass@k Inference Scaling},
+  author={Qiwei Di and Kaixuan Ji and Xuheng Li and Heyang Zhao and Quanquan Gu},
+  booktitle={The Fourteenth International Conference on Learning Representations},
+  year={2026},
+  url={https://openreview.net/forum?id=a6CVQpjbXq}
 }
 ```
 
@@ -396,13 +394,14 @@ token index at which generation should stop, or `None` to finish the trace.
 ### `aghazadeh2026cges`
 
 ```bibtex
-@article{aghazadeh2026cges,
-  title   = {{CGES}: Confidence-Guided Early Stopping for Efficient and Accurate Self-Consistency},
-  author  = {Aghazadeh, Ehsan and Ghasemi, Ahmad and Beyhaghi, Hedyeh and Pishro-Nik, Hossein},
-  journal = {arXiv preprint arXiv:2511.02603},
-  year    = {2026},
-  doi     = {10.48550/arXiv.2511.02603},
-  url     = {https://arxiv.org/abs/2511.02603}
+@misc{aghazadeh2026cges,
+      title={CGES: Confidence-Guided Early Stopping for Efficient and Accurate Self-Consistency}, 
+      author={Ehsan Aghazadeh and Ahmad Ghasemi and Hedyeh Beyhaghi and Hossein Pishro-Nik},
+      year={2026},
+      eprint={2511.02603},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL},
+      url={https://arxiv.org/abs/2511.02603}, 
 }
 ```
 
@@ -411,12 +410,20 @@ token index at which generation should stop, or `None` to finish the trace.
 
 ```bibtex
 @inproceedings{aggarwal2023sample,
-  title     = {Let's Sample Step by Step: Adaptive-Consistency for Efficient Reasoning and Coding with {LLM}s},
-  author    = {Aggarwal, Pranjal and Madaan, Aman and Yang, Yiming and Mausam},
-  booktitle = {Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing},
-  year      = {2023},
-  doi       = {10.48550/arXiv.2305.11860},
-  url       = {https://arxiv.org/abs/2305.11860}
+    title = "Let{'}s Sample Step by Step: Adaptive-Consistency for Efficient Reasoning and Coding with {LLM}s",
+    author = "Aggarwal, Pranjal  and
+      Madaan, Aman  and
+      Yang, Yiming  and
+      Mausam",
+    editor = "Bouamor, Houda  and
+      Pino, Juan  and
+      Bali, Kalika",
+    booktitle = "Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing",
+    month = dec,
+    year = "2023",
+    publisher = "Association for Computational Linguistics",
+    url = "https://aclanthology.org/2023.emnlp-main.761/",
+    doi = "10.18653/v1/2023.emnlp-main.761"
 }
 ```
 
