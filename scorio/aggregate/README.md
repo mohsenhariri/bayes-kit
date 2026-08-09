@@ -189,7 +189,7 @@ token index at which generation should stop, or `None` to finish the trace.
 ### `fu2025deep`
 
 ```bibtex
-@inproceedings{fu2026deep,
+@inproceedings{fu2025deep,
   title={Deep Think with Confidence},
   author={Yichao Fu and Xuewei Wang and Hao Zhang and Yuandong Tian and Jiawei Zhao},
   booktitle={The Fourteenth International Conference on Learning Representations},
