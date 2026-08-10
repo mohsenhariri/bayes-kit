@@ -280,6 +280,12 @@ We'll add guidelines for coding agents (AGENTS.md/CLAUDE.md) soon.
         <sub><b>@Amirsamandar</b></sub>
       </a>
     </td>
+    <td align="center">
+      <a href="https://github.com/NahalShahini989">
+        <img src="https://avatars.githubusercontent.com/u/127443481?s=96&amp;v=4" width="80" height="80" alt="@NahalShahini989"><br>
+        <sub><b>@NahalShahini989</b></sub>
+      </a>
+    </td>
   </tr>
 </table>
 

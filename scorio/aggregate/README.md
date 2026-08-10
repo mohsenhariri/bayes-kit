@@ -8,6 +8,9 @@ in columns.
 We introduce the `scorio.aggregate` APIs in
 [Test-Time Scaling in Reasoning LLMs: Inference Regimes, Evaluation, and Reproducibility](https://arxiv.org/abs/2608.04001).
 
+https://github.com/user-attachments/assets/01d7ab2f-6f1e-4ea5-9b02-189339aa1fdf
+
+
 If you use these aggregation APIs, please cite this work:
 
 ```bibtex
@@ -22,6 +25,9 @@ If you use these aggregation APIs, please cite this work:
   url           = {https://arxiv.org/abs/2608.04001}
 }
 ```
+
+https://github.com/user-attachments/assets/073432a4-a24f-4924-9a66-9c283523ee0c
+
 
 Notes:
 
