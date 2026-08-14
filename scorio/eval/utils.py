@@ -1,28 +1,4 @@
-import numpy as np
 from scipy.special import ndtri
-
-
-def _as_2d_int_matrix(R: np.ndarray) -> np.ndarray:
-    Rm = np.asarray(R, dtype=int)
-    if Rm.ndim == 1:
-        # treat as single-row
-        Rm = Rm.reshape(1, -1)
-    elif Rm.ndim != 2:
-        raise ValueError("R must be a 1D or 2D array.")
-    return Rm
-
-
-def _validate_matrix_range(R: np.ndarray, low: int, high: int, name: str) -> None:
-    """Validate that integer matrix entries are within [low, high]."""
-    if R.size == 0:
-        return
-    if R.min() < low or R.max() > high:
-        raise ValueError(f"Entries of {name} must be integers in [{low}, {high}].")
-
-
-def _validate_binary(R: np.ndarray, name: str = "R") -> None:
-    """Validate that an integer matrix is binary (entries in {0,1})."""
-    _validate_matrix_range(R, 0, 1, name)
 
 
 def _z_value(confidence: float, two_sided: bool = True) -> float:
@@ -81,8 +57,11 @@ def normal_credible_interval(
         b_lo, b_hi = bounds
         if b_lo > b_hi:
             raise ValueError("bounds must satisfy bounds[0] <= bounds[1]")
-        lo = max(lo, b_lo)
-        hi = min(hi, b_hi)
+        # Clip both endpoints into the interval.  Clipping only the lower
+        # endpoint from below and the upper endpoint from above can invert an
+        # interval when the posterior mean itself lies outside the bounds.
+        lo = min(max(lo, b_lo), b_hi)
+        hi = min(max(hi, b_lo), b_hi)
     return float(lo), float(hi)
 
 

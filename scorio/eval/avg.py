@@ -9,76 +9,23 @@ averages across questions and trials.
 
 import numpy as np
 
-from .bayes import bayes
-from .utils import (
-    _as_2d_int_matrix,
-    _validate_binary,
-    _validate_matrix_range,
-    normal_credible_interval,
+from ._categorical import (
+    CategoricalBank,
+    bayes_moments,
+    observed_mean,
+    prepare_categorical_bank,
 )
+from .utils import normal_credible_interval
 
 
-def _avg(
-    R: np.ndarray,
-    w: np.ndarray | None = None,
-) -> float:
-    r"""
-    Simple (optionally weighted) average of all entries in the result matrix.
-
-    When **w** is omitted, *R* must be binary and the function returns the
-    arithmetic mean of the entries.  When **w** is supplied, each entry
-    :math:`R_{\alpha i}` is mapped through the weight vector before averaging.
-
-    Args:
-        R: :math:`M \times N` result matrix with entries in
-           :math:`\{0, \ldots, C\}`.
-           Row :math:`\alpha` contains the *N* outcomes for question
-           :math:`\alpha`.
-        w: optional length :math:`(C+1)` weight vector
-           :math:`(w_0, \ldots, w_C)` that maps category *k* to score
-           :math:`w_k`.  If *None*, *R* must be binary and
-           :math:`w = (0, 1)` is used.
-
-    Returns:
-        float: The (weighted) arithmetic mean of the mapped entries.
-
-    Notation:
-        :math:`R_{\alpha i}` is the outcome for question :math:`\alpha`
-        on trial :math:`i`.
-
-    Formula:
-        .. math::
-
-            \text{avg} = \frac{1}{M \cdot N}
-                \sum_{\alpha=1}^{M} \sum_{i=1}^{N} w_{R_{\alpha i}}
-
-        When :math:`w = (0, 1)` this reduces to the plain binary average.
-
-    Examples:
-        Binary (no weights):
-
-        >>> import numpy as np
-        >>> R = np.array([[0, 1, 1, 0, 1],
-        ...               [1, 1, 0, 1, 1]])
-        >>> round(_avg(R), 6)
-        0.7
-
-        Weighted:
-
-        >>> R = np.array([[0, 1, 2, 2, 1],
-        ...               [1, 1, 0, 2, 2]])
-        >>> w = np.array([0.0, 0.5, 1.0])
-        >>> round(_avg(R, w), 6)
-        0.6
-    """
-    Rm = _as_2d_int_matrix(R)
-    if w is None:
-        _validate_binary(Rm)
-        return float(np.mean(Rm))
-    wv = np.asarray(w, dtype=float)
-    C = wv.size - 1
-    _validate_matrix_range(Rm, 0, C, "R")
-    return float(np.mean(wv[Rm]))
+def _avg_bank(R: np.ndarray, w: np.ndarray | None) -> CategoricalBank:
+    """Prepare Avg inputs while preserving its public binary error text."""
+    try:
+        return prepare_categorical_bank(R, w=w)
+    except ValueError as exc:
+        if w is None and "weight vector 'w' must be provided" in str(exc):
+            raise ValueError("Entries of R must be integers in [0, 1].") from exc
+        raise
 
 
 def avg(
@@ -144,22 +91,11 @@ def avg(
         >>> round(a, 6), round(sigma, 6)
         (0.6, 0.147196)
     """
-    Rm = _as_2d_int_matrix(R)
-    if w is None:
-        _validate_binary(Rm)
-        wv = np.array([0.0, 1.0], dtype=float)
-    else:
-        wv = np.asarray(w, dtype=float)
-    _, N = Rm.shape
-    C = wv.size - 1
-    if N <= 0:
-        raise ValueError("R must have at least one column (N>=1)")
-
-    # Bayesian σ under uniform prior (D=0)
-    _, sigma_bayes = bayes(Rm, wv, R0=None)
-    T = 1 + C + N  # D=0
-    sigma_avg = (T / N) * sigma_bayes
-    return _avg(Rm, wv), float(sigma_avg)
+    bank = _avg_bank(R, w)
+    _, sigma_bayes = bayes_moments(bank)
+    total = bank.category_count + bank.trial_count
+    sigma_avg = (total / bank.trial_count) * sigma_bayes
+    return observed_mean(bank), float(sigma_avg)
 
 
 def avg_ci(

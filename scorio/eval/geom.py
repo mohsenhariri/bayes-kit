@@ -2,9 +2,9 @@ r"""Geometric pass/spectrum metrics for binary outcomes.
 
 This module implements finite-bank geometric and threshold-spectrum metrics
 together with approximate Beta-Bernoulli posterior summaries for latent
-resampling quantities. The paper ``Geom@k: Fast to Converge, Slow to Drift``
-defines a dataset-level endpoint blend; ``scorio`` also exposes a
-questionwise Geom@k variant as the primary ``geom_at_k`` metric.
+resampling quantities. The paper ``Geom@k: Stable Evaluation and Fast Rank
+Recovery for LLM Reasoning`` defines a dataset-level endpoint blend;
+``scorio`` also exposes a distinct questionwise Geom@k variant.
 
 Notation
 --------
@@ -60,19 +60,20 @@ Available API
 import math
 
 import numpy as np
-from scipy.special import comb
 
-from .pass_at_k import (
-    _beta_ratio,
-    _binary_beta_posterior_params,
+from ._count_score import CountScore
+from ._inputs import (
+    BinaryBank,
+    prepare_binary_bank,
+    validate_finite_k,
+    validate_latent_k,
 )
-from .pass_at_k import (
-    pass_at_k as _pass_at_k,
+from ._posterior import (
+    JointPosteriorMoments,
+    joint_posterior_moments,
+    posterior_moments,
 )
-from .pass_at_k import (
-    pass_hat_k as _pass_hat_k,
-)
-from .utils import _as_2d_int_matrix, _validate_binary, normal_credible_interval
+from .utils import normal_credible_interval
 
 
 def _weighted_geometric_mean(
@@ -98,21 +99,34 @@ def _weighted_geometric_mean(
     return float((x**x_weight) * (y**y_weight))
 
 
-def _validate_beta_prior(alpha0: float, beta0: float) -> None:
-    if alpha0 <= 0.0 or beta0 <= 0.0:
-        raise ValueError(
-            f"alpha0 and beta0 must both be > 0 for a Beta prior; got {alpha0}, {beta0}"
-        )
+def _geometric_delta_mean_variance(
+    mean_x: float,
+    variance_x: float,
+    mean_y: float,
+    variance_y: float,
+    covariance: float,
+    x_weight: float,
+    y_weight: float,
+) -> tuple[float, float]:
+    """Apply first-order uncertainty propagation to a geometric blend."""
+    mean = _weighted_geometric_mean(mean_x, mean_y, x_weight, y_weight)
+    if mean == 0.0:
+        return 0.0, 0.0
 
+    gradient_x = 0.0
+    if x_weight != 0.0:
+        gradient_x = x_weight * (mean_x ** (x_weight - 1.0)) * (mean_y**y_weight)
 
-def _validate_finite_bank_k(N: int, k: int) -> None:
-    if not (1 <= k <= N):
-        raise ValueError(f"k must satisfy 1 <= k <= N (N={N}); got k={k}")
+    gradient_y = 0.0
+    if y_weight != 0.0:
+        gradient_y = y_weight * (mean_x**x_weight) * (mean_y ** (y_weight - 1.0))
 
-
-def _validate_latent_k(k: int) -> None:
-    if k < 1:
-        raise ValueError(f"k must be >= 1; got k={k}")
+    variance = (
+        (gradient_x**2) * variance_x
+        + (gradient_y**2) * variance_y
+        + 2.0 * gradient_x * gradient_y * covariance
+    )
+    return mean, float(max(0.0, variance))
 
 
 def _resolve_lambda(lam: float, lambda_: float | None = None) -> float:
@@ -127,7 +141,7 @@ def _resolve_lambda(lam: float, lambda_: float | None = None) -> float:
 
 def _unanimous_spectrum_weights(k: int) -> np.ndarray:
     r"""Return endpoint weights :math:`w_r = 1\{r = k\}`."""
-    _validate_latent_k(k)
+    k = validate_latent_k(k)
     weights = np.zeros(k, dtype=float)
     weights[-1] = 1.0
     return weights
@@ -142,38 +156,20 @@ def _mg_spectrum_weights(k: int) -> np.ndarray:
 
         w^{mG}_{r,k} = \frac{2}{k} 1\{r \ge \lceil k/2 \rceil + 1\}.
     """
-    _validate_latent_k(k)
+    k = validate_latent_k(k)
     weights = np.zeros(k, dtype=float)
-    weights[int(math.ceil(k / 2.0)) :] = 2.0 / k
+    weights[(k + 1) // 2 :] = 2.0 / k
     return weights
 
 
-def _validate_spectrum_weights(
+def _spectrum_score(
     weights: np.ndarray | list[float] | tuple[float, ...],
     k: int,
-) -> np.ndarray:
-    w = np.asarray(weights, dtype=float)
+) -> CountScore:
+    w = np.asarray(weights)
     if w.ndim != 1 or w.shape[0] != k:
         raise ValueError(f"weights must be a length-{k} 1D array; got shape {w.shape}")
-    if not np.all(np.isfinite(w)):
-        raise ValueError("weights must be finite")
-    if np.any(w < 0.0):
-        raise ValueError("weights must be non-negative")
-    weight_sum = float(np.sum(w))
-    if weight_sum > 1.0 + 1e-12:
-        raise ValueError(
-            f"weights must satisfy sum(weights) <= 1; got sum={weight_sum}"
-        )
-    return w
-
-
-def _event_score_levels(weights: np.ndarray) -> np.ndarray:
-    r"""Return :math:`A_j = \sum_{r \le j} w_r` with :math:`A_0 = 0`.
-
-    :math:`A_j` is the credit assigned to a sampled subset of size :math:`k`
-    that contains exactly :math:`j` correct trials.
-    """
-    return np.concatenate(([0.0], np.cumsum(weights, dtype=float)))
+    return CountScore.spectrum(w)
 
 
 def threshold_spectrum_at_k(
@@ -202,22 +198,9 @@ def threshold_spectrum_at_k(
         The implementation uses the equivalent event-score representation from
         Appendix C.4.
     """
-    Rm = _as_2d_int_matrix(R)
-    _validate_binary(Rm)
-    _, N = Rm.shape
-    _validate_finite_bank_k(N, k)
-    w = _validate_spectrum_weights(weights, k)
-
-    nu = np.sum(Rm, axis=1)
-    levels = _event_score_levels(w)
-    denom = float(comb(N, k))
-    vals = np.zeros_like(nu, dtype=float)
-    for j in range(1, k + 1):
-        credit = float(levels[j])
-        if credit == 0.0:
-            continue
-        vals += credit * comb(nu, j) * comb(N - nu, k - j) / denom
-    return float(np.mean(vals))
+    bank = prepare_binary_bank(R)
+    k = validate_finite_k(bank.trial_count, k)
+    return _spectrum_score(weights, k).mean(bank)
 
 
 def geom_ds_at_k(
@@ -264,8 +247,10 @@ def geom_ds_at_k(
         >>> round(geom_ds_at_k(R, 2), 6)
         0.653835
     """
-    pass_score = _pass_at_k(R, k)
-    unanimous_score = _pass_hat_k(R, k)
+    bank = prepare_binary_bank(R)
+    k = validate_finite_k(bank.trial_count, k)
+    pass_score = CountScore.pass_at_k(k).mean(bank)
+    unanimous_score = CountScore.unanimous_at_k(k).mean(bank)
 
     return _weighted_geometric_mean(
         pass_score, unanimous_score, pass_power, unanimous_power
@@ -278,7 +263,7 @@ def geom_at_k(
     r"""
     Questionwise Geom@k averaged across questions.
 
-    This is ``scorio``'s primary Geom@k metric. Unlike
+    This is ``scorio``'s questionwise Geom@k variant. Unlike
     :func:`geom_ds_at_k`, which blends dataset-level Pass@k and dataset-level
     Unanimous@k, this function first computes the per-question quantities
 
@@ -316,18 +301,13 @@ def geom_at_k(
         >>> round(geom_at_k(R, 2), 6)
         0.647106
     """
-    Rm = _as_2d_int_matrix(R)
-    _validate_binary(Rm)
-    _, N = Rm.shape
-    _validate_finite_bank_k(N, k)
+    bank = prepare_binary_bank(R)
+    k = validate_finite_k(bank.trial_count, k)
+    pass_vals = CountScore.pass_at_k(k).state_scores(bank)
+    unanimous_vals = CountScore.unanimous_at_k(k).state_scores(bank)
 
-    nu = np.sum(Rm, axis=1)
-    denom = float(comb(N, k))
-    pass_vals = 1.0 - comb(N - nu, k) / denom
-    unanimous_vals = comb(nu, k) / denom
-
-    vals = np.empty(Rm.shape[0], dtype=float)
-    for i in range(Rm.shape[0]):
+    vals = np.empty(bank.unique_successes.size, dtype=float)
+    for i in range(vals.size):
         vals[i] = _weighted_geometric_mean(
             float(pass_vals[i]),
             float(unanimous_vals[i]),
@@ -335,7 +315,7 @@ def geom_at_k(
             unanimous_power,
         )
 
-    return float(np.mean(vals))
+    return float(np.dot(bank.frequencies, vals) / bank.question_count)
 
 
 def geo_spectrum_at_k(
@@ -387,153 +367,92 @@ def geo_spectrum_at_k(
         1.0
     """
     lam = _resolve_lambda(lam, lambda_)
-    pass_score = _pass_at_k(R, k)
+    bank = prepare_binary_bank(R)
+    k = validate_finite_k(bank.trial_count, k)
     if lam == 1.0:
-        return pass_score
+        return CountScore.pass_at_k(k).mean(bank)
 
-    w = (
-        _mg_spectrum_weights(k)
-        if weights is None
-        else _validate_spectrum_weights(weights, k)
-    )
-    spectrum_score = threshold_spectrum_at_k(R, k, w)
+    weights = _mg_spectrum_weights(k) if weights is None else weights
+    spectrum_score = _spectrum_score(weights, k).mean(bank)
+    if lam == 0.0:
+        return spectrum_score
+
+    pass_score = CountScore.pass_at_k(k).mean(bank)
     return _weighted_geometric_mean(pass_score, spectrum_score, lam, 1.0 - lam)
 
 
-def _pass_and_spectrum_row_posterior_moments(
+def _pass_and_spectrum_joint_posterior_moments(
     R: np.ndarray,
     k: int,
     weights: np.ndarray,
     alpha0: float = 1.0,
     beta0: float = 1.0,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    r"""Per-question posterior moments for latent Pass@k and spectrum scores.
-
-    Returns:
-        ``(mean_pass, var_pass, mean_spectrum, var_spectrum, cov_pass_spectrum)``
-        arrays, one entry per question.
-
-    Notes:
-        Unlike the observed finite-bank metrics, these latent quantities are
-        defined for any integer :math:`k \ge 1`. The implementation therefore
-        does *not* restrict :math:`k` by the observed trial count :math:`N`.
-    """
-    _validate_latent_k(k)
-    _validate_beta_prior(alpha0, beta0)
-
-    Rm = _as_2d_int_matrix(R)
-    _validate_binary(Rm)
-    M, _ = Rm.shape
-    w = _validate_spectrum_weights(weights, k)
-
-    alpha, beta = _binary_beta_posterior_params(Rm, alpha0=alpha0, beta0=beta0)
-    levels = _event_score_levels(w)
-    coeff = np.zeros(k + 1, dtype=float)
-    for j in range(1, k + 1):
-        coeff[j] = float(levels[j] * comb(k, j))
-    active_js = [j for j in range(1, k + 1) if coeff[j] != 0.0]
-
-    mean_pass = np.empty(M, dtype=float)
-    var_pass = np.empty(M, dtype=float)
-    mean_spec = np.empty(M, dtype=float)
-    var_spec = np.empty(M, dtype=float)
-    cov_ps = np.empty(M, dtype=float)
-
-    for i in range(M):
-        a_i = float(alpha[i])
-        b_i = float(beta[i])
-
-        eqk = _beta_ratio(a_i, b_i, 0, k)
-        eq2k = _beta_ratio(a_i, b_i, 0, 2 * k)
-        m_pass = 1.0 - eqk
-        v_pass = max(0.0, eq2k - eqk * eqk)
-
-        m_spec = 0.0
-        e2_spec = 0.0
-        e_ps = 0.0
-
-        for j in active_js:
-            c_j = float(coeff[j])
-            moment_j = _beta_ratio(a_i, b_i, j, k - j)
-            m_spec += c_j * moment_j
-            e_ps += c_j * (moment_j - _beta_ratio(a_i, b_i, j, 2 * k - j))
-            for l in active_js:
-                c_l = float(coeff[l])
-                e2_spec += c_j * c_l * _beta_ratio(a_i, b_i, j + l, 2 * k - (j + l))
-
-        v_spec = max(0.0, e2_spec - m_spec * m_spec)
-        cov = e_ps - m_pass * m_spec
-
-        mean_pass[i] = m_pass
-        var_pass[i] = v_pass
-        mean_spec[i] = m_spec
-        var_spec[i] = v_spec
-        cov_ps[i] = cov
-
-    return mean_pass, var_pass, mean_spec, var_spec, cov_ps
-
-
-def _pass_and_spectrum_posterior_moments(
-    R: np.ndarray,
-    k: int,
-    weights: np.ndarray,
-    alpha0: float = 1.0,
-    beta0: float = 1.0,
-) -> tuple[float, float, float, float, float]:
-    r"""Dataset-level posterior moments for latent Pass@k and spectrum scores."""
-    mean_pass, var_pass, mean_spec, var_spec, cov_ps = (
-        _pass_and_spectrum_row_posterior_moments(
-            R,
-            k,
-            weights,
-            alpha0=alpha0,
-            beta0=beta0,
-        )
+) -> tuple[BinaryBank, JointPosteriorMoments]:
+    """Prepare a bank and compute joint Pass/spectrum posterior moments."""
+    k = validate_latent_k(k)
+    spectrum_score = _spectrum_score(weights, k)
+    bank = prepare_binary_bank(R)
+    moments = joint_posterior_moments(
+        bank,
+        CountScore.pass_at_k(k),
+        spectrum_score,
+        alpha0=alpha0,
+        beta0=beta0,
     )
-    M = mean_pass.size
-    mu_pass = float(np.mean(mean_pass))
-    mu_spec = float(np.mean(mean_spec))
-    var_pass_dataset = float(np.sum(var_pass) / (M**2))
-    var_spec_dataset = float(np.sum(var_spec) / (M**2))
-    cov_dataset = float(np.sum(cov_ps) / (M**2))
-    return mu_pass, var_pass_dataset, mu_spec, var_spec_dataset, cov_dataset
+    return bank, moments
 
 
 def _geo_spectrum_at_k_bayes(
     R: np.ndarray,
     k: int,
     lam: float,
-    weights: np.ndarray,
+    weights: np.ndarray | list[float] | tuple[float, ...] | None,
     alpha0: float = 1.0,
     beta0: float = 1.0,
 ) -> tuple[float, float]:
     r"""Approximate posterior mean/std for latent :math:`\mathrm{GeoSpectrum}_{\lambda,w}@k`."""
     lam = _resolve_lambda(lam)
-    mu_pass, var_pass, mu_spec, var_spec, cov_ps = _pass_and_spectrum_posterior_moments(
-        R,
-        k,
-        weights,
+    k = validate_latent_k(k)
+    bank = prepare_binary_bank(R)
+    pass_score = CountScore.pass_at_k(k)
+
+    if lam == 1.0:
+        score_moments = posterior_moments(
+            bank,
+            pass_score,
+            alpha0=alpha0,
+            beta0=beta0,
+        )
+        return score_moments.mean, float(math.sqrt(score_moments.variance))
+
+    weights = _mg_spectrum_weights(k) if weights is None else weights
+    spectrum_score = _spectrum_score(weights, k)
+    if lam == 0.0:
+        score_moments = posterior_moments(
+            bank,
+            spectrum_score,
+            alpha0=alpha0,
+            beta0=beta0,
+        )
+        return score_moments.mean, float(math.sqrt(score_moments.variance))
+
+    joint_moments = joint_posterior_moments(
+        bank,
+        pass_score,
+        spectrum_score,
         alpha0=alpha0,
         beta0=beta0,
     )
-
-    if lam == 0.0:
-        return mu_spec, float(math.sqrt(max(0.0, var_spec)))
-    if lam == 1.0:
-        return mu_pass, float(math.sqrt(max(0.0, var_pass)))
-
-    mu = _weighted_geometric_mean(mu_pass, mu_spec, lam, 1.0 - lam)
-    if mu == 0.0:
-        return 0.0, 0.0
-
-    grad_pass = lam * (mu_pass ** (lam - 1.0)) * (mu_spec ** (1.0 - lam))
-    grad_spec = (1.0 - lam) * (mu_pass**lam) * (mu_spec ** (-lam))
-    sigma2 = (
-        (grad_pass**2) * var_pass
-        + (grad_spec**2) * var_spec
-        + 2.0 * grad_pass * grad_spec * cov_ps
+    mu, variance = _geometric_delta_mean_variance(
+        joint_moments.left.mean,
+        joint_moments.left.variance,
+        joint_moments.right.mean,
+        joint_moments.right.variance,
+        joint_moments.covariance,
+        lam,
+        1.0 - lam,
     )
-    return float(mu), float(math.sqrt(max(0.0, sigma2)))
+    return mu, float(math.sqrt(variance))
 
 
 def _geom_at_k_bayes(
@@ -545,13 +464,7 @@ def _geom_at_k_bayes(
     beta0: float = 1.0,
 ) -> tuple[float, float]:
     r"""Approximate posterior mean/std for latent questionwise Geom@k."""
-    (
-        mean_pass,
-        var_pass,
-        mean_unanimous,
-        var_unanimous,
-        cov_pu,
-    ) = _pass_and_spectrum_row_posterior_moments(
+    bank, moments = _pass_and_spectrum_joint_posterior_moments(
         R,
         k,
         _unanimous_spectrum_weights(k),
@@ -559,47 +472,25 @@ def _geom_at_k_bayes(
         beta0=beta0,
     )
 
-    means = np.empty_like(mean_pass, dtype=float)
-    variances = np.empty_like(mean_pass, dtype=float)
-    for i in range(mean_pass.size):
-        mu_pass = float(mean_pass[i])
-        mu_unanimous = float(mean_unanimous[i])
-        mu = _weighted_geometric_mean(
-            mu_pass,
-            mu_unanimous,
+    means = np.empty_like(moments.left.state_means)
+    variances = np.empty_like(moments.left.state_means)
+    for i in range(means.size):
+        means[i], variances[i] = _geometric_delta_mean_variance(
+            float(moments.left.state_means[i]),
+            float(moments.left.state_variances[i]),
+            float(moments.right.state_means[i]),
+            float(moments.right.state_variances[i]),
+            float(moments.state_covariances[i]),
             pass_power,
             unanimous_power,
         )
-        means[i] = mu
-        if mu == 0.0:
-            variances[i] = 0.0
-            continue
 
-        grad_pass = 0.0
-        if pass_power != 0.0:
-            grad_pass = (
-                pass_power
-                * (mu_pass ** (pass_power - 1.0))
-                * (mu_unanimous**unanimous_power)
-            )
-
-        grad_unanimous = 0.0
-        if unanimous_power != 0.0:
-            grad_unanimous = (
-                unanimous_power
-                * (mu_pass**pass_power)
-                * (mu_unanimous ** (unanimous_power - 1.0))
-            )
-
-        variances[i] = max(
-            0.0,
-            (grad_pass**2) * float(var_pass[i])
-            + (grad_unanimous**2) * float(var_unanimous[i])
-            + 2.0 * grad_pass * grad_unanimous * float(cov_pu[i]),
-        )
-
-    mu = float(np.mean(means))
-    sigma = float(math.sqrt(float(np.sum(variances))) / mean_pass.size)
+    frequencies = bank.frequencies.astype(float, copy=False)
+    mu = float(np.dot(frequencies, means) / bank.question_count)
+    variance = float(
+        np.dot(frequencies, variances) / (bank.question_count * bank.question_count)
+    )
+    sigma = float(math.sqrt(variance))
     return mu, sigma
 
 
@@ -612,13 +503,7 @@ def _geom_ds_at_k_bayes(
     beta0: float = 1.0,
 ) -> tuple[float, float]:
     r"""Approximate posterior mean/std for latent dataset-level Geom@k."""
-    (
-        mu_pass,
-        var_pass,
-        mu_unanimous,
-        var_unanimous,
-        cov_pu,
-    ) = _pass_and_spectrum_posterior_moments(
+    _, moments = _pass_and_spectrum_joint_posterior_moments(
         R,
         k,
         _unanimous_spectrum_weights(k),
@@ -626,37 +511,16 @@ def _geom_ds_at_k_bayes(
         beta0=beta0,
     )
 
-    mu = _weighted_geometric_mean(
-        mu_pass,
-        mu_unanimous,
+    mu, variance = _geometric_delta_mean_variance(
+        moments.left.mean,
+        moments.left.variance,
+        moments.right.mean,
+        moments.right.variance,
+        moments.covariance,
         pass_power,
         unanimous_power,
     )
-    if mu == 0.0:
-        return 0.0, 0.0
-
-    grad_pass = 0.0
-    if pass_power != 0.0:
-        grad_pass = (
-            pass_power
-            * (mu_pass ** (pass_power - 1.0))
-            * (mu_unanimous**unanimous_power)
-        )
-
-    grad_unanimous = 0.0
-    if unanimous_power != 0.0:
-        grad_unanimous = (
-            unanimous_power
-            * (mu_pass**pass_power)
-            * (mu_unanimous ** (unanimous_power - 1.0))
-        )
-
-    sigma2 = (
-        (grad_pass**2) * var_pass
-        + (grad_unanimous**2) * var_unanimous
-        + 2.0 * grad_pass * grad_unanimous * cov_pu
-    )
-    return float(mu), float(math.sqrt(max(0.0, sigma2)))
+    return mu, float(math.sqrt(variance))
 
 
 def threshold_spectrum_at_k_ci(
@@ -711,15 +575,17 @@ def threshold_spectrum_at_k_ci(
                 \sum_{\alpha=1}^{M} \mathrm{Var}[g(p_\alpha)]
             }.
     """
-    w = _validate_spectrum_weights(weights, k)
-    _, _, mu_spec, var_spec, _ = _pass_and_spectrum_posterior_moments(
-        R,
-        k,
-        w,
+    k = validate_latent_k(k)
+    spectrum_score = _spectrum_score(weights, k)
+    bank = prepare_binary_bank(R)
+    moments = posterior_moments(
+        bank,
+        spectrum_score,
         alpha0=alpha0,
         beta0=beta0,
     )
-    sigma = float(math.sqrt(max(0.0, var_spec)))
+    mu_spec = moments.mean
+    sigma = float(math.sqrt(moments.variance))
     lo, hi = normal_credible_interval(
         mu_spec, sigma, credibility=confidence, two_sided=True, bounds=bounds
     )
@@ -917,16 +783,7 @@ def geo_spectrum_at_k_ci(
         :math:`g(x, y) = x^\lambda y^{1-\lambda}`.
     """
     lam = _resolve_lambda(lam, lambda_)
-    w = None
-    if lam != 1.0:
-        w = (
-            _mg_spectrum_weights(k)
-            if weights is None
-            else _validate_spectrum_weights(weights, k)
-        )
-    else:
-        # GeoSpectrum_{1,w}@k is exactly Pass@k, so ``w`` is irrelevant.
-        w = _unanimous_spectrum_weights(k)
+    w = None if lam == 1.0 else weights
 
     mu, sigma = _geo_spectrum_at_k_bayes(
         R,
@@ -957,7 +814,7 @@ def geo_spectrum_star_at_k(R: np.ndarray, k: int) -> float:
         float: The ``GeoSpectrum*@k`` score.
     """
 
-    return geo_spectrum_at_k(R, k, lam=0.5, weights=_mg_spectrum_weights(k))
+    return geo_spectrum_at_k(R, k)
 
 
 def geo_spectrum_star_at_k_ci(

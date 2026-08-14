@@ -15,13 +15,10 @@ Each metric has a companion ``*_ci`` function that returns
 
 import numpy as np
 
-from .gpass import g_pass_at_k_tau, g_pass_at_k_tau_ci
-from .utils import _as_2d_int_matrix
-
-
-def _majority_tau(k: int) -> float:
-    """Return the threshold τ such that ceil(τ k) is a strict majority."""
-    return ((k // 2) + 1) / k
+from ._count_score import CountScore
+from ._inputs import prepare_binary_bank, validate_finite_k
+from ._posterior import posterior_moments
+from .utils import normal_credible_interval
 
 
 def maj_at_k(R: np.ndarray, k: int) -> float:
@@ -64,11 +61,10 @@ def maj_at_k(R: np.ndarray, k: int) -> float:
         >>> round(maj_at_k(R, 3), 6)
         0.85
     """
-    Rm = _as_2d_int_matrix(R)
-    _, N = Rm.shape
-    if not (1 <= k <= N):
-        raise ValueError(f"k must satisfy 1 <= k <= N (N={N}); got k={k}")
-    return g_pass_at_k_tau(Rm, k, tau=_majority_tau(k))
+    bank = prepare_binary_bank(R)
+    k = validate_finite_k(bank.trial_count, k)
+    threshold = (k // 2) + 1
+    return CountScore.threshold_at_k(k, threshold).mean(bank)
 
 
 def maj_at_k_ci(
@@ -115,19 +111,25 @@ def maj_at_k_ci(
         >>> round(mu, 6), round(sigma, 6), round(lo, 4), round(hi, 4)
         (0.684524, 0.151958, 0.3867, 0.9824)
     """
-    Rm = _as_2d_int_matrix(R)
-    _, N = Rm.shape
-    if not (1 <= k <= N):
-        raise ValueError(f"k must satisfy 1 <= k <= N (N={N}); got k={k}")
-    return g_pass_at_k_tau_ci(
-        Rm,
-        k,
-        tau=_majority_tau(k),
-        confidence=confidence,
-        bounds=bounds,
+    bank = prepare_binary_bank(R)
+    k = validate_finite_k(bank.trial_count, k)
+    threshold = (k // 2) + 1
+    moments = posterior_moments(
+        bank,
+        CountScore.threshold_at_k(k, threshold),
         alpha0=alpha0,
         beta0=beta0,
     )
+    mu = moments.mean
+    sigma = float(np.sqrt(moments.variance))
+    lo, hi = normal_credible_interval(
+        mu,
+        sigma,
+        credibility=confidence,
+        two_sided=True,
+        bounds=bounds,
+    )
+    return float(mu), sigma, float(lo), float(hi)
 
 
 __all__ = [

@@ -19,10 +19,11 @@ module. Generalized G-Pass variants live in :mod:`scorio.eval.gpass`.
 import math
 
 import numpy as np
-from scipy.special import betaln
-from scipy.stats import hypergeom
 
-from .utils import _as_2d_int_matrix, _validate_binary, normal_credible_interval
+from ._count_score import CountScore
+from ._inputs import prepare_binary_bank, validate_finite_k
+from ._posterior import posterior_moments
+from .utils import normal_credible_interval
 
 
 def pass_at_k(R: np.ndarray, k: int) -> float:
@@ -74,17 +75,9 @@ def pass_at_k(R: np.ndarray, k: int) -> float:
         >>> round(pass_at_k(R, 2), 6)
         0.95
     """
-    R = _as_2d_int_matrix(R)
-    _validate_binary(R)
-    _, N = R.shape
-    if not (1 <= k <= N):
-        raise ValueError(f"k must satisfy 1 <= k <= N (N={N}); got k={k}")
-    nu = np.sum(R, axis=1)
-    # P(X >= 1), X ~ Hypergeom(N, nu, k). The survival function avoids
-    # overflow in the equivalent ratio of binomial coefficients for large N,k.
-    vals = np.asarray(hypergeom.sf(0, N, nu, k), dtype=float)
-    vals = np.clip(vals, 0.0, 1.0)
-    return float(np.mean(vals))
+    bank = prepare_binary_bank(R)
+    k = validate_finite_k(bank.trial_count, k)
+    return CountScore.pass_at_k(k).mean(bank)
 
 
 def pass_hat_k(R: np.ndarray, k: int) -> float:
@@ -138,97 +131,39 @@ def pass_hat_k(R: np.ndarray, k: int) -> float:
         >>> round(pass_hat_k(R, 2), 6)
         0.45
     """
-    R = _as_2d_int_matrix(R)
-    _validate_binary(R)
-    _, N = R.shape
-    if not (1 <= k <= N):
-        raise ValueError(f"k must satisfy 1 <= k <= N (N={N}); got k={k}")
-    nu = np.sum(R, axis=1)
-    # P(X = k), X ~ Hypergeom(N, nu, k), evaluated without forming the
-    # potentially overflowing binomial coefficients explicitly.
-    vals = np.asarray(hypergeom.pmf(k, N, nu, k), dtype=float)
-    vals = np.clip(vals, 0.0, 1.0)
-    return float(np.mean(vals))
-
-
-def _beta_ratio(alpha: float, beta: float, a: int, b: int) -> float:
-    """Compute Beta(alpha+a, beta+b) / Beta(alpha, beta) stably."""
-    return float(math.exp(betaln(alpha + a, beta + b) - betaln(alpha, beta)))
-
-
-def _binary_beta_posterior_params(
-    R: np.ndarray, alpha0: float = 1.0, beta0: float = 1.0
-) -> tuple[np.ndarray, np.ndarray]:
-    """Per-row Beta posterior parameters for binary outcomes with Beta(alpha0,beta0) prior."""
-    Rm = _as_2d_int_matrix(R)
-    _validate_binary(Rm)
-    _, N = Rm.shape
-    c = np.sum(Rm, axis=1).astype(float)
-    alpha = alpha0 + c
-    beta = beta0 + (N - c)
-    return alpha, beta
+    bank = prepare_binary_bank(R)
+    k = validate_finite_k(bank.trial_count, k)
+    return CountScore.unanimous_at_k(k).mean(bank)
 
 
 def _pass_at_k_bayes(
     R: np.ndarray, k: int, alpha0: float = 1.0, beta0: float = 1.0
 ) -> tuple[float, float]:
     """Posterior mean/std for the i.i.d. Pass@k quantity: 1 - (1 - p)^k."""
-    Rm = _as_2d_int_matrix(R)
-    _validate_binary(Rm)
-    M, N = Rm.shape
-    if not (1 <= k <= N):
-        raise ValueError(f"k must satisfy 1 <= k <= N (N={N}); got k={k}")
-
-    alpha, beta = _binary_beta_posterior_params(Rm, alpha0=alpha0, beta0=beta0)
-
-    means = np.empty(M, dtype=float)
-    vars_ = np.empty(M, dtype=float)
-
-    # g(p) = 1 - (1-p)^k
-    for i in range(M):
-        a_i = float(alpha[i])
-        b_i = float(beta[i])
-        e_qk = _beta_ratio(a_i, b_i, 0, k)  # E[(1-p)^k]
-        e_q2k = _beta_ratio(a_i, b_i, 0, 2 * k)  # E[(1-p)^(2k)]
-        m = 1.0 - e_qk
-        e2 = 1.0 - 2.0 * e_qk + e_q2k
-        v = max(0.0, e2 - m * m)
-        means[i] = m
-        vars_[i] = v
-
-    mu = float(np.mean(means))
-    sigma = float(math.sqrt(float(np.sum(vars_))) / M)
-    return mu, sigma
+    bank = prepare_binary_bank(R)
+    k = validate_finite_k(bank.trial_count, k)
+    moments = posterior_moments(
+        bank,
+        CountScore.pass_at_k(k),
+        alpha0=alpha0,
+        beta0=beta0,
+    )
+    return moments.mean, float(math.sqrt(moments.variance))
 
 
 def _pass_hat_k_bayes(
     R: np.ndarray, k: int, alpha0: float = 1.0, beta0: float = 1.0
 ) -> tuple[float, float]:
     """Posterior mean/std for the i.i.d. Pass^k quantity: p^k."""
-    Rm = _as_2d_int_matrix(R)
-    _validate_binary(Rm)
-    M, N = Rm.shape
-    if not (1 <= k <= N):
-        raise ValueError(f"k must satisfy 1 <= k <= N (N={N}); got k={k}")
-
-    alpha, beta = _binary_beta_posterior_params(Rm, alpha0=alpha0, beta0=beta0)
-
-    means = np.empty(M, dtype=float)
-    vars_ = np.empty(M, dtype=float)
-
-    for i in range(M):
-        a_i = float(alpha[i])
-        b_i = float(beta[i])
-        e_pk = _beta_ratio(a_i, b_i, k, 0)  # E[p^k]
-        e_p2k = _beta_ratio(a_i, b_i, 2 * k, 0)  # E[p^(2k)]
-        m = e_pk
-        v = max(0.0, e_p2k - m * m)
-        means[i] = m
-        vars_[i] = v
-
-    mu = float(np.mean(means))
-    sigma = float(math.sqrt(float(np.sum(vars_))) / M)
-    return mu, sigma
+    bank = prepare_binary_bank(R)
+    k = validate_finite_k(bank.trial_count, k)
+    moments = posterior_moments(
+        bank,
+        CountScore.unanimous_at_k(k),
+        alpha0=alpha0,
+        beta0=beta0,
+    )
+    return moments.mean, float(math.sqrt(moments.variance))
 
 
 def pass_at_k_ci(

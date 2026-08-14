@@ -689,6 +689,18 @@ def test_spectrum_family_rejects_invalid_weights(binary_ref: np.ndarray) -> None
         scorio_eval.threshold_spectrum_at_k(binary_ref, 3, np.array([0.2, -0.1, 0.3]))
     with pytest.raises(ValueError, match="sum\\(weights\\) <= 1"):
         scorio_eval.threshold_spectrum_at_k(binary_ref, 3, np.array([0.5, 0.4, 0.3]))
+    with pytest.raises(ValueError, match="not complex"):
+        scorio_eval.threshold_spectrum_at_k(
+            binary_ref,
+            3,
+            np.array([0.2 + 0.1j, 0.1, 0.3]),
+        )
+    with pytest.raises(ValueError, match="numeric"):
+        scorio_eval.threshold_spectrum_at_k(
+            binary_ref,
+            3,
+            ["0.2", "0.1", "0.3"],
+        )
 
 
 @pytest.mark.parametrize(

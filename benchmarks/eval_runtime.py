@@ -26,11 +26,12 @@ import platform
 import statistics
 import subprocess
 import sys
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter_ns
-from typing import Any, Callable, Sequence
+from typing import Any
 
 import numpy as np
 import scipy
@@ -41,7 +42,6 @@ if str(REPOSITORY_ROOT) not in sys.path:
 
 import scorio  # noqa: E402
 from scorio import eval as eval_api  # noqa: E402
-
 
 SCHEMA_VERSION = 1
 SEED = 20260814
@@ -164,6 +164,7 @@ def _measure(
 
 def _build_cases(quick: bool) -> tuple[list[BenchmarkCase], dict[str, Any]]:
     rng = np.random.default_rng(SEED)
+    repeated_ks: tuple[int, ...]
 
     if quick:
         point_shape = (20, 8)
@@ -349,9 +350,7 @@ def _build_cases(quick: bool) -> tuple[list[BenchmarkCase], dict[str, Any]]:
             "bayes",
             "categorical",
             "categorical",
-            lambda: eval_api.bayes(
-                categorical, category_weights, categorical_prior
-            ),
+            lambda: eval_api.bayes(categorical, category_weights, categorical_prior),
             cheap_repeats,
         ),
         BenchmarkCase(
@@ -372,9 +371,7 @@ def _build_cases(quick: bool) -> tuple[list[BenchmarkCase], dict[str, Any]]:
             "bayes_ci",
             "categorical",
             "categorical",
-            lambda: eval_api.bayes_ci(
-                categorical, category_weights, categorical_prior
-            ),
+            lambda: eval_api.bayes_ci(categorical, category_weights, categorical_prior),
             cheap_repeats,
         ),
         BenchmarkCase(
@@ -412,8 +409,7 @@ def _build_cases(quick: bool) -> tuple[list[BenchmarkCase], dict[str, Any]]:
             "repeated_k",
             "binary_point",
             lambda: [
-                eval_api.geo_spectrum_star_at_k(binary_point, k)
-                for k in repeated_ks
+                eval_api.geo_spectrum_star_at_k(binary_point, k) for k in repeated_ks
             ],
             posterior_repeats,
         ),
@@ -442,9 +438,7 @@ def _build_cases(quick: bool) -> tuple[list[BenchmarkCase], dict[str, Any]]:
     return cases, datasets
 
 
-def _comparison(
-    current: dict[str, Any], baseline_path: Path
-) -> dict[str, Any]:
+def _comparison(current: dict[str, Any], baseline_path: Path) -> dict[str, Any]:
     with baseline_path.open("r", encoding="utf-8") as handle:
         baseline = json.load(handle)
 
@@ -480,8 +474,7 @@ def _comparison(
             "current_median_ns": current_median,
             "median_speedup": median_speedup,
             "p95_speedup": p95_speedup,
-            "median_change_percent": 100.0
-            * (current_median / baseline_median - 1.0),
+            "median_change_percent": 100.0 * (current_median / baseline_median - 1.0),
         }
 
     missing_current = sorted(set(baseline_results) - set(current_results))
@@ -535,9 +528,7 @@ def run_benchmarks(
 
     results: dict[str, Any] = {}
     for case in cases:
-        repeats = (
-            case.default_repeats if repeats_override is None else repeats_override
-        )
+        repeats = case.default_repeats if repeats_override is None else repeats_override
         results[case.name] = _measure(case, warmups=warmups, repeats=repeats)
 
     return {

@@ -11,7 +11,6 @@ import pytest
 
 from scorio import eval as scorio_eval
 
-
 EXPECTED_EXPORTS = (
     "bayes",
     "bayes_ci",
@@ -101,8 +100,7 @@ EXPECTED_PARAMETERS: dict[str, tuple[tuple[str, Any], ...]] = {
     "g_pass_at_k_tau_ci": RK
     + (("tau", REQUIRED), CONFIDENCE, BOUNDS_01, ALPHA0, BETA0),
     "max_at_k": RK + (("w", None),),
-    "max_at_k_ci": RK
-    + (("w", None), ("R0", None), CONFIDENCE, ("bounds", None)),
+    "max_at_k_ci": RK + (("w", None), ("R0", None), CONFIDENCE, ("bounds", None)),
     "threshold_spectrum_at_k": RK + (("weights", REQUIRED),),
     "threshold_spectrum_at_k_ci": RK
     + (("weights", REQUIRED), CONFIDENCE, BOUNDS_01, ALPHA0, BETA0),
@@ -110,8 +108,7 @@ EXPECTED_PARAMETERS: dict[str, tuple[tuple[str, Any], ...]] = {
     "geom_ds_at_k": GEOM,
     "geom_at_k_ci": GEOM_CI,
     "geom_ds_at_k_ci": GEOM_CI,
-    "geo_spectrum_at_k": RK
-    + (("lam", 0.5), ("weights", None), ("lambda_", None)),
+    "geo_spectrum_at_k": RK + (("lam", 0.5), ("weights", None), ("lambda_", None)),
     "geo_spectrum_at_k_ci": RK
     + (
         ("lam", 0.5),
@@ -141,9 +138,7 @@ def _api_calls(values: np.ndarray) -> dict[str, Callable[[], object]]:
         "g_pass_at_k": lambda: scorio_eval.g_pass_at_k(values, 2),
         "g_pass_at_k_ci": lambda: scorio_eval.g_pass_at_k_ci(values, 2),
         "g_pass_at_k_tau": lambda: scorio_eval.g_pass_at_k_tau(values, 2, 0.5),
-        "g_pass_at_k_tau_ci": lambda: scorio_eval.g_pass_at_k_tau_ci(
-            values, 2, 0.5
-        ),
+        "g_pass_at_k_tau_ci": lambda: scorio_eval.g_pass_at_k_tau_ci(values, 2, 0.5),
         "mg_pass_at_k": lambda: scorio_eval.mg_pass_at_k(values, 2),
         "mg_pass_at_k_ci": lambda: scorio_eval.mg_pass_at_k_ci(values, 2),
         "maj_at_k": lambda: scorio_eval.maj_at_k(values, 2),
@@ -163,12 +158,8 @@ def _api_calls(values: np.ndarray) -> dict[str, Callable[[], object]]:
         "geom_at_k_ci": lambda: scorio_eval.geom_at_k_ci(values, 2),
         "geom_ds_at_k_ci": lambda: scorio_eval.geom_ds_at_k_ci(values, 2),
         "geo_spectrum_at_k": lambda: scorio_eval.geo_spectrum_at_k(values, 2),
-        "geo_spectrum_at_k_ci": lambda: scorio_eval.geo_spectrum_at_k_ci(
-            values, 2
-        ),
-        "geo_spectrum_star_at_k": lambda: scorio_eval.geo_spectrum_star_at_k(
-            values, 2
-        ),
+        "geo_spectrum_at_k_ci": lambda: scorio_eval.geo_spectrum_at_k_ci(values, 2),
+        "geo_spectrum_star_at_k": lambda: scorio_eval.geo_spectrum_star_at_k(values, 2),
         "geo_spectrum_star_at_k_ci": lambda: scorio_eval.geo_spectrum_star_at_k_ci(
             values, 2
         ),
@@ -189,9 +180,7 @@ def _finite_k_ci_call(name: str, values: np.ndarray, k: int) -> object:
 
 def _latent_k_ci_call(name: str, values: np.ndarray, k: int) -> object:
     if name == "threshold_spectrum_at_k_ci":
-        return scorio_eval.threshold_spectrum_at_k_ci(
-            values, k, np.full(k, 1.0 / k)
-        )
+        return scorio_eval.threshold_spectrum_at_k_ci(values, k, np.full(k, 1.0 / k))
     return getattr(scorio_eval, name)(values, k)
 
 
@@ -204,7 +193,8 @@ def test_public_exports_are_exact() -> None:
 def test_public_signatures_and_defaults_are_stable(name: str) -> None:
     signature = inspect.signature(getattr(scorio_eval, name))
     actual = tuple(
-        (parameter.name, parameter.default) for parameter in signature.parameters.values()
+        (parameter.name, parameter.default)
+        for parameter in signature.parameters.values()
     )
 
     assert actual == EXPECTED_PARAMETERS[name]

@@ -21,19 +21,12 @@ Available API
 import math
 
 import numpy as np
-from scipy.special import comb
-from scipy.stats import hypergeom
 
-from .pass_at_k import (
-    _beta_ratio,
-    _binary_beta_posterior_params,
-    _pass_at_k_bayes,
-    _pass_hat_k_bayes,
-    pass_at_k,
-    pass_hat_k,
-    pass_hat_k_ci,
-)
-from .utils import _as_2d_int_matrix, _validate_binary, normal_credible_interval
+from ._count_score import CountScore
+from ._inputs import prepare_binary_bank, validate_finite_k
+from ._posterior import posterior_moments
+from .pass_at_k import pass_hat_k, pass_hat_k_ci
+from .utils import normal_credible_interval
 
 
 def g_pass_at_k(R: np.ndarray, k: int) -> float:
@@ -146,23 +139,17 @@ def g_pass_at_k_tau(R: np.ndarray, k: int, tau: float) -> float:
         >>> round(g_pass_at_k_tau(R, 2, 1.0), 6)
         0.45
     """
-    R = _as_2d_int_matrix(R)
-    _validate_binary(R)
-    _, N = R.shape
+    bank = prepare_binary_bank(R)
 
     if not (0.0 <= tau <= 1.0):
         raise ValueError(f"tau must be in [0, 1]; got {tau}")
-    if not (1 <= k <= N):
-        raise ValueError(f"k must satisfy 1 <= k <= N (N={N}); got k={k}")
+    k = validate_finite_k(bank.trial_count, k)
 
     if tau <= 0.0:
-        return pass_at_k(R, k)
+        return CountScore.pass_at_k(k).mean(bank)
 
-    nu = np.sum(R, axis=1)
-    j0 = max(1, int(math.ceil(tau * k)))
-    vals = np.asarray(hypergeom.sf(j0 - 1, N, nu, k), dtype=float)
-    vals = np.clip(vals, 0.0, 1.0)
-    return float(np.mean(vals))
+    threshold = max(1, int(math.ceil(tau * k)))
+    return CountScore.threshold_at_k(k, threshold).mean(bank)
 
 
 def mg_pass_at_k(R: np.ndarray, k: int) -> float:
@@ -230,126 +217,42 @@ def mg_pass_at_k(R: np.ndarray, k: int) -> float:
         >>> round(mg_pass_at_k(R, 3), 6)
         0.166667
     """
-    R = _as_2d_int_matrix(R)
-    _validate_binary(R)
-    M, N = R.shape
-
-    if not (1 <= k <= N):
-        raise ValueError(f"k must satisfy 1 <= k <= N (N={N}); got k={k}")
-
-    nu = np.sum(R, axis=1)
-
-    majority = int(math.ceil(0.5 * k))
-    if majority >= k:
-        return 0.0
-
-    vals = np.zeros(M, dtype=float)
-    # mG per-question = (2/k) * E[(X - majority)_+], X ~ Hypergeom(N, nu, k)
-    for j in range(majority + 1, k + 1):
-        pmf = np.asarray(hypergeom.pmf(j, N, nu, k), dtype=float)
-        vals += (j - majority) * pmf
-
-    vals *= 2.0 / k
-    vals = np.clip(vals, 0.0, 1.0)
-    return float(np.mean(vals))
+    bank = prepare_binary_bank(R)
+    k = validate_finite_k(bank.trial_count, k)
+    return CountScore.mg_at_k(k).mean(bank)
 
 
 def _g_pass_at_k_tau_bayes(
     R: np.ndarray, k: int, tau: float, alpha0: float = 1.0, beta0: float = 1.0
 ) -> tuple[float, float]:
     """Posterior mean/std for the i.i.d. G-Pass@k_τ quantity."""
-    Rm = _as_2d_int_matrix(R)
-    _validate_binary(Rm)
-    M, N = Rm.shape
-
+    bank = prepare_binary_bank(R)
     if not (0.0 <= tau <= 1.0):
         raise ValueError(f"tau must be in [0, 1]; got {tau}")
-    if not (1 <= k <= N):
-        raise ValueError(f"k must satisfy 1 <= k <= N (N={N}); got k={k}")
-
-    if tau <= 0.0:
-        return _pass_at_k_bayes(Rm, k, alpha0=alpha0, beta0=beta0)
-    if tau >= 1.0:
-        return _pass_hat_k_bayes(Rm, k, alpha0=alpha0, beta0=beta0)
-
-    j0 = int(math.ceil(tau * k))
-    alpha, beta = _binary_beta_posterior_params(Rm, alpha0=alpha0, beta0=beta0)
-
-    means = np.empty(M, dtype=float)
-    vars_ = np.empty(M, dtype=float)
-
-    # g(p) = Σ_{j=j0..k} C(k,j) p^j (1-p)^{k-j}
-    js = list(range(j0, k + 1))
-    coeff = [float(comb(k, j)) for j in js]
-
-    for i in range(M):
-        a_i = float(alpha[i])
-        b_i = float(beta[i])
-
-        m = 0.0
-        for c_j, j in zip(coeff, js, strict=True):
-            m += c_j * _beta_ratio(a_i, b_i, j, k - j)
-
-        e2 = 0.0
-        for idx_j, j in enumerate(js):
-            c_j = coeff[idx_j]
-            for idx_l, l in enumerate(js):
-                c_l = coeff[idx_l]
-                e2 += c_j * c_l * _beta_ratio(a_i, b_i, j + l, 2 * k - (j + l))
-
-        v = max(0.0, e2 - m * m)
-        means[i] = m
-        vars_[i] = v
-
-    mu = float(np.mean(means))
-    sigma = float(math.sqrt(float(np.sum(vars_))) / M)
-    return mu, sigma
+    k = validate_finite_k(bank.trial_count, k)
+    threshold = max(1, int(math.ceil(tau * k)))
+    moments = posterior_moments(
+        bank,
+        CountScore.threshold_at_k(k, threshold),
+        alpha0=alpha0,
+        beta0=beta0,
+    )
+    return moments.mean, float(math.sqrt(moments.variance))
 
 
 def _mg_pass_at_k_bayes(
     R: np.ndarray, k: int, alpha0: float = 1.0, beta0: float = 1.0
 ) -> tuple[float, float]:
     """Posterior mean/std for the i.i.d. mG-Pass@k quantity."""
-    Rm = _as_2d_int_matrix(R)
-    _validate_binary(Rm)
-    M, N = Rm.shape
-    if not (1 <= k <= N):
-        raise ValueError(f"k must satisfy 1 <= k <= N (N={N}); got k={k}")
-
-    alpha, beta = _binary_beta_posterior_params(Rm, alpha0=alpha0, beta0=beta0)
-
-    majority = int(math.ceil(0.5 * k))
-    if majority >= k:
-        return 0.0, 0.0
-
-    js = list(range(majority + 1, k + 1))
-    coeff = [float((2.0 / k) * (j - majority) * comb(k, j)) for j in js]
-
-    means = np.empty(M, dtype=float)
-    vars_ = np.empty(M, dtype=float)
-
-    for i in range(M):
-        a_i = float(alpha[i])
-        b_i = float(beta[i])
-
-        m = 0.0
-        for c_j, j in zip(coeff, js, strict=True):
-            m += c_j * _beta_ratio(a_i, b_i, j, k - j)
-
-        e2 = 0.0
-        for idx_j, j in enumerate(js):
-            c_j = coeff[idx_j]
-            for idx_l, l in enumerate(js):
-                c_l = coeff[idx_l]
-                e2 += c_j * c_l * _beta_ratio(a_i, b_i, j + l, 2 * k - (j + l))
-
-        v = max(0.0, e2 - m * m)
-        means[i] = m
-        vars_[i] = v
-
-    mu = float(np.mean(means))
-    sigma = float(math.sqrt(float(np.sum(vars_))) / M)
-    return mu, sigma
+    bank = prepare_binary_bank(R)
+    k = validate_finite_k(bank.trial_count, k)
+    moments = posterior_moments(
+        bank,
+        CountScore.mg_at_k(k),
+        alpha0=alpha0,
+        beta0=beta0,
+    )
+    return moments.mean, float(math.sqrt(moments.variance))
 
 
 def g_pass_at_k_ci(
