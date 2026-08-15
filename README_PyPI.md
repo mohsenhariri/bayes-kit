@@ -269,6 +269,18 @@ We'll add guidelines for coding agents (AGENTS.md/CLAUDE.md) soon.
       </a>
     </td>
     <td align="center">
+      <a href="https://github.com/NahalShahini989">
+        <img src="https://avatars.githubusercontent.com/u/127443481?s=96&amp;v=4" width="80" height="80" alt="@NahalShahini989"><br>
+        <sub><b>@NahalShahini989</b></sub>
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://github.com/ben072292">
+        <img src="https://avatars.githubusercontent.com/u/15337083?s=96&amp;v=4" width="80" height="80" alt="@ben072292"><br>
+        <sub><b>@ben072292</b></sub>
+      </a>
+    </td>
+    <td align="center">
       <a href="https://github.com/mecaneer23">
         <img src="https://avatars.githubusercontent.com/u/74385377?s=96&amp;v=4" width="80" height="80" alt="@mecaneer23"><br>
         <sub><b>@mecaneer23</b></sub>
@@ -278,12 +290,6 @@ We'll add guidelines for coding agents (AGENTS.md/CLAUDE.md) soon.
       <a href="https://github.com/Amirsamandar">
         <img src="https://avatars.githubusercontent.com/u/90907234?s=96&amp;v=4" width="80" height="80" alt="@Amirsamandar"><br>
         <sub><b>@Amirsamandar</b></sub>
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/NahalShahini989">
-        <img src="https://avatars.githubusercontent.com/u/127443481?s=96&amp;v=4" width="80" height="80" alt="@NahalShahini989"><br>
-        <sub><b>@NahalShahini989</b></sub>
       </a>
     </td>
   </tr>
