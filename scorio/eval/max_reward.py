@@ -26,112 +26,90 @@ Each metric has a companion ``*_ci`` function that returns
 import math
 
 import numpy as np
-from scipy.special import comb, gammaln, logsumexp
+from scipy.stats import hypergeom
 
+from ._categorical import (
+    CategoricalBank,
+    _scaled_rewards,
+    observed_mean,
+    prepare_categorical_bank,
+)
+from ._inputs import validate_finite_k, validate_latent_k
 from .bayes import bayes_ci
-from .pass_at_k import _beta_ratio
-from .utils import _as_2d_int_matrix, _validate_matrix_range, normal_credible_interval
+from .utils import normal_credible_interval
 
 
-def _prepare_categorical_input(
-    R: np.ndarray,
-    w: np.ndarray | None = None,
-    R0: np.ndarray | None = None,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Normalize R, w, and R0 for weighted categorical metrics."""
-    Rm = _as_2d_int_matrix(R)
-
-    if w is None:
-        unique_vals = np.unique(Rm)
-        is_binary = len(unique_vals) <= 2 and np.all(np.isin(unique_vals, [0, 1]))
-        if not is_binary:
-            unique_str = ", ".join(map(str, sorted(unique_vals)))
-            raise ValueError(
-                f"R contains more than 2 unique values ({unique_str}), so weight vector 'w' must be provided. "
-                f"Please specify a weight vector of length {len(unique_vals)} to map each category to a score."
-            )
-        wv = np.array([0.0, 1.0], dtype=float)
-    else:
-        wv = np.asarray(w, dtype=float)
-
-    M, _ = Rm.shape
-    C = int(wv.size - 1)
-    _validate_matrix_range(Rm, 0, C, "R")
-
-    if R0 is None:
-        R0m = np.zeros((M, 0), dtype=int)
-    else:
-        R0m = np.asarray(R0, dtype=int)
-        if R0m.ndim == 1:
-            R0m = R0m.reshape(M, -1)
-        if R0m.shape[0] != M:
-            raise ValueError("R0 must have the same number of rows (M) as R.")
-        _validate_matrix_range(R0m, 0, C, "R0")
-
-    return Rm, wv, R0m
+def _hypergeom_any_above(
+    cumulative_counts: np.ndarray,
+    trial_count: int,
+    k: int,
+) -> np.ndarray:
+    """Probability that at least one draw exceeds a reward threshold."""
+    above_counts = trial_count - cumulative_counts
+    probabilities = hypergeom.sf(0, trial_count, above_counts, k)
+    return np.asarray(probabilities, dtype=float)
 
 
-def _validate_k(N: int, k: int) -> None:
-    if not (1 <= k <= N):
-        raise ValueError(f"k must satisfy 1 <= k <= N (N={N}); got k={k}")
+def _log_beta_power_moment(alpha: float, beta: float, power: int) -> float:
+    """Return ``log(E[p**power])`` without subtracting large log-gammas."""
+    if power == 0:
+        return 0.0
+
+    offsets = np.arange(power, dtype=float)
+    denominators = alpha + beta + offsets
+    complement = beta / denominators
+    terms = np.empty(power, dtype=float)
+    near_one = complement <= 0.5
+    terms[near_one] = np.log1p(-complement[near_one])
+    terms[~near_one] = np.log(alpha + offsets[~near_one]) - np.log(
+        denominators[~near_one]
+    )
+    return math.fsum(float(term) for term in terms)
 
 
-def _row_bincount(A: np.ndarray, length: int) -> np.ndarray:
-    """Count occurrences of 0..length-1 in each row of A."""
-    if A.shape[1] == 0:
-        return np.zeros((A.shape[0], length), dtype=int)
-    out = np.zeros((A.shape[0], length), dtype=int)
-    rows = np.repeat(np.arange(A.shape[0]), A.shape[1])
-    np.add.at(out, (rows, A.ravel()), 1)
-    return out
-
-
-def _grouped_posterior_params(
-    R: np.ndarray,
-    w: np.ndarray | None = None,
-    R0: np.ndarray | None = None,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Return grouped Dirichlet posterior parameters and unique reward levels."""
-    Rm, wv, R0m = _prepare_categorical_input(R, w=w, R0=R0)
-    C = int(wv.size - 1)
-
-    unique_levels, inverse = np.unique(wv, return_inverse=True)
-    L = int(unique_levels.size)
-
-    n_counts = _row_bincount(Rm, C + 1)
-    n0_counts = _row_bincount(R0m, C + 1) + 1
-    alpha_cat = n_counts + n0_counts
-
-    gamma = np.zeros((Rm.shape[0], L), dtype=float)
-    for cat in range(C + 1):
-        gamma[:, inverse[cat]] += alpha_cat[:, cat]
-
-    return gamma, unique_levels
-
-
-def _dirichlet_nested_cumulative_moment(
+def _log_dirichlet_nested_cumulative_moment(
     total: float, a: float, b: float, k: int
 ) -> float:
-    """E[X^k (X+Y)^k] for X,Y from a 3-part Dirichlet partition.
+    """Return ``log(E[X^k (X+Y)^k])`` for a Dirichlet partition.
 
-    Here ``X`` has parameter ``a``, ``Y`` has parameter ``b``, and the omitted
-    remainder has parameter ``total - a - b``. The formula follows from the
-    multinomial expansion of ``(X+Y)^k`` and Dirichlet raw moments.
+    Writing ``U = X + Y`` and ``V = X / (X + Y)``, Dirichlet neutrality gives
+    independent ``U ~ Beta(a+b, total-a-b)`` and ``V ~ Beta(a, b)``. Hence
+    ``E[X^k U^k] = E[U^(2k)] E[V^k]``.
     """
     if b <= 0.0:
         raise ValueError("b must be > 0 for nested cumulative moments")
-    r = np.arange(k + 1, dtype=float)
-    log_terms = (
-        gammaln(k + 1.0)
-        - gammaln(r + 1.0)
-        - gammaln(k - r + 1.0)
-        + gammaln(a + k + r)
-        - gammaln(a)
-        + gammaln(b + k - r)
-        - gammaln(b)
-        - (gammaln(total + 2.0 * k) - gammaln(total))
+    return _log_beta_power_moment(
+        a + b,
+        total - a - b,
+        2 * k,
+    ) + _log_beta_power_moment(a, b, k)
+
+
+def _covariance_from_log_moments(
+    log_cross_moment: float,
+    log_left_mean: float,
+    log_right_mean: float,
+) -> float:
+    """Subtract two positive moments without cancellation."""
+    log_product = log_left_mean + log_right_mean
+    difference = log_product - log_cross_moment
+    tolerance = (
+        64.0
+        * np.finfo(float).eps
+        * max(
+            1.0,
+            abs(log_product),
+            abs(log_cross_moment),
+        )
     )
-    return float(np.exp(logsumexp(log_terms)))
+    if difference > 0.0:
+        if difference <= tolerance:
+            difference = 0.0
+        else:
+            raise FloatingPointError(
+                "nested cumulative covariance is materially negative"
+            )
+    return math.exp(log_cross_moment) * -math.expm1(difference)
 
 
 def max_at_k(R: np.ndarray, k: int, w: np.ndarray | None = None) -> float:
@@ -196,81 +174,117 @@ def max_at_k(R: np.ndarray, k: int, w: np.ndarray | None = None) -> float:
         >>> round(max_at_k(R, 2, w=w), 6)
         0.85
     """
-    Rm, wv, _ = _prepare_categorical_input(R, w=w, R0=None)
-    _, N = Rm.shape
-    _validate_k(N, k)
+    bank = prepare_categorical_bank(R, w=w)
+    k = validate_finite_k(bank.trial_count, k)
+    if k == 1:
+        return observed_mean(bank)
 
-    rewards = wv[Rm]
-    coeff = comb(np.arange(k - 1, N, dtype=float), k - 1) / comb(N, k)
+    grouped_counts, levels = bank.grouped_observed_counts()
+    if levels.size == 1:
+        return float(levels[0])
 
-    vals = np.empty(Rm.shape[0], dtype=float)
-    for i in range(Rm.shape[0]):
-        sorted_rewards = np.sort(rewards[i])
-        vals[i] = float(np.dot(coeff, sorted_rewards[k - 1 :]))
-    return float(np.mean(vals))
+    cumulative_counts = np.cumsum(grouped_counts, axis=1)[:, :-1]
+    any_above = _hypergeom_any_above(
+        cumulative_counts,
+        bank.trial_count,
+        k,
+    )
+    offset, reward_scale, normalized_levels = _scaled_rewards(levels)
+    normalized_scores = normalized_levels[0] + any_above @ np.diff(normalized_levels)
+    return float(offset + reward_scale * np.mean(normalized_scores))
 
 
 def _max_at_k_bayes(
-    R: np.ndarray,
+    bank: CategoricalBank,
     k: int,
-    w: np.ndarray | None = None,
-    R0: np.ndarray | None = None,
-) -> tuple[float, float, np.ndarray]:
+) -> tuple[float, float]:
     """Posterior mean/std for Max@k under a grouped Dirichlet posterior."""
-    gamma, levels = _grouped_posterior_params(R, w=w, R0=R0)
-    M = gamma.shape[0]
-    L = gamma.shape[1]
-    total = float(np.sum(gamma[0]))
+    gamma, levels = bank.grouped_posterior_counts()
+    M = bank.question_count
+    L = int(levels.size)
+    total = float(bank.category_count + bank.prior_trial_count + bank.trial_count)
 
-    if k < 1:
-        raise ValueError(f"k must be >= 1; got {k}")
     # The posterior moments describe the latent distribution, so k is not
     # restricted by the observed sample size once the posterior is defined.
 
     if L == 1:
         mu = float(levels[0])
-        return mu, 0.0, levels
+        return mu, 0.0
 
-    gaps = np.diff(levels)
-    top = float(levels[-1])
+    offset, reward_scale, normalized_levels = _scaled_rewards(levels)
+    gaps = np.diff(normalized_levels)
 
     means = np.empty(M, dtype=float)
-    vars_ = np.empty(M, dtype=float)
+    row_sigmas = np.empty(M, dtype=float)
 
     for row in range(M):
         gamma_row = gamma[row]
         cum = np.cumsum(gamma_row)[:-1]  # A_l parameters for l = 1..L-1
 
-        e_ak = np.empty(L - 1, dtype=float)
-        e_a2k = np.empty(L - 1, dtype=float)
+        log_e_ak = np.empty(L - 1, dtype=float)
+        log_e_a2k = np.empty(L - 1, dtype=float)
         for idx in range(L - 1):
             a = float(cum[idx])
             b = total - a
-            e_ak[idx] = _beta_ratio(a, b, k, 0)
-            e_a2k[idx] = _beta_ratio(a, b, 2 * k, 0)
+            log_e_ak[idx] = _log_beta_power_moment(a, b, k)
+            log_e_a2k[idx] = _log_beta_power_moment(a, b, 2 * k)
 
-        m = top - float(np.dot(gaps, e_ak))
+        exceedance_probabilities = -np.expm1(log_e_ak)
+        mean_increment = float(np.dot(gaps, exceedance_probabilities))
 
-        cross = np.empty((L - 1, L - 1), dtype=float)
+        covariance = np.empty((L - 1, L - 1), dtype=float)
         for i in range(L - 1):
-            cross[i, i] = e_a2k[i]
+            covariance[i, i] = _covariance_from_log_moments(
+                log_e_a2k[i],
+                log_e_ak[i],
+                log_e_ak[i],
+            )
             for j in range(i + 1, L - 1):
                 a = float(cum[i])
                 b = float(cum[j] - cum[i])
-                moment = _dirichlet_nested_cumulative_moment(total, a, b, k)
-                cross[i, j] = moment
-                cross[j, i] = moment
+                log_cross = _log_dirichlet_nested_cumulative_moment(
+                    total,
+                    a,
+                    b,
+                    k,
+                )
+                value = _covariance_from_log_moments(
+                    log_cross,
+                    log_e_ak[i],
+                    log_e_ak[j],
+                )
+                covariance[i, j] = value
+                covariance[j, i] = value
 
-        e2 = top * top - 2.0 * top * float(np.dot(gaps, e_ak))
-        e2 += float(gaps @ cross @ gaps)
+        normalized_variance = float(gaps @ covariance @ gaps)
+        if normalized_variance < 0.0:
+            tolerance = 64.0 * np.finfo(float).eps
+            if normalized_variance >= -tolerance:
+                normalized_variance = 0.0
+            else:
+                raise FloatingPointError(
+                    "Max@k posterior variance is materially negative"
+                )
 
-        v = max(0.0, e2 - m * m)
-        means[row] = m
-        vars_[row] = v
+        normalized_mean = float(
+            np.clip(
+                normalized_levels[0] + mean_increment,
+                normalized_levels[0],
+                normalized_levels[-1],
+            )
+        )
+        means[row] = offset + reward_scale * normalized_mean
+        row_sigmas[row] = reward_scale * math.sqrt(normalized_variance)
 
     mu = float(np.mean(means))
-    sigma = float(math.sqrt(float(np.sum(vars_))) / M)
-    return mu, sigma, levels
+    sigma_scale = float(np.max(row_sigmas))
+    if sigma_scale == 0.0:
+        sigma = 0.0
+    else:
+        sigma = float(
+            sigma_scale * math.sqrt(float(np.sum((row_sigmas / sigma_scale) ** 2))) / M
+        )
+    return mu, sigma
 
 
 def max_at_k_ci(
@@ -342,12 +356,14 @@ def max_at_k_ci(
         >>> round(mu, 6), round(sigma, 6), round(lo, 4), round(hi, 4)
         (0.75, 0.08812, 0.5773, 0.9227)
     """
+    k = validate_latent_k(k)
     if k == 1:
         return bayes_ci(R, w=w, R0=R0, confidence=confidence, bounds=bounds)
 
-    mu, sigma, levels = _max_at_k_bayes(R, k, w=w, R0=R0)
+    bank = prepare_categorical_bank(R, w=w, R0=R0)
+    mu, sigma = _max_at_k_bayes(bank, k)
     if bounds is None:
-        bounds = (float(np.min(levels)), float(np.max(levels)))
+        bounds = (float(np.min(bank.weights)), float(np.max(bank.weights)))
     lo, hi = normal_credible_interval(
         mu, sigma, credibility=confidence, two_sided=True, bounds=bounds
     )

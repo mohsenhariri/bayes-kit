@@ -3,8 +3,8 @@
 Every public function in `scorio.eval` takes a question-by-trial matrix `R` as
 its first argument. `R` has shape `M × N`, where each row is one question and
 each column is one sampled trial. A one-dimensional input is treated as a
-single question. The geometric and spectrum APIs are intentionally omitted
-from this reference.
+single question. The geometric and spectrum APIs are included below with
+their aggregation semantics stated explicitly.
 
 We introduced `Bayes@N` and the `scorio.eval` interface in
 [Don't Pass@k: A Bayesian Framework for Large Language Model Evaluation](https://arxiv.org/abs/2510.04265) (ICLR 2026).
@@ -41,13 +41,21 @@ Notes:
   interval.
 - Point estimators that select `k` trials require `1 <= k <= N`. The pass,
   majority, and AUC interval functions keep the same restriction. The
-  Max@k interval function describes a posterior resampling target and allows
-  any integer `k >= 1`, including `k > N`.
+  Max@k, Geom@k, and spectrum interval functions describe posterior
+  resampling targets and allow any integer `k >= 1`, including `k > N`.
 - `pass_hat_k`, `unanimous_at_k`, and `g_pass_at_k` are the same all-success
   metric under three common names. Their `_ci` functions are equivalent too.
 - `g_pass_at_k_tau` uses `tau=0` for Pass@k and `tau=1` for the all-success
   metric. `mg_pass_at_k` follows the published discrete threshold sum; for odd
   `k`, it is an approximation to the corresponding continuous area.
+- `geom_ds_at_k` is the dataset-level Geom@k reported in *Geom@k: Stable
+  Evaluation and Fast Rank Recovery for LLM Reasoning*: it averages Pass@k
+  and unanimity across questions before blending them. `geom_at_k` is the
+  distinct questionwise variant, which blends first and then averages.
+- `geo_spectrum_at_k` defaults to the published discrete upper-half mG
+  weights. For odd `k` those weights sum to less than one; at `k=1` they are
+  all zero. Supply explicit `weights` when a different normalization is
+  intended.
 - By default, binary posterior uncertainty uses independent `Beta(1, 1)` base
   priors; the pass, threshold, majority, and AUC interval families expose
   `alpha0` and `beta0` overrides. Categorical uncertainty in `bayes`/`bayes_ci`,
@@ -96,6 +104,21 @@ Notes:
 | --- | --- | --- | --- |
 | `max_at_k` | `score` | Expected best reward among `k` selected trials | [Paper](https://arxiv.org/abs/2510.23393) · [API](./max_reward.py) · [BibTeX](#bibtex-bagirov2025best) |
 | `max_at_k_ci` | `(mu, sigma, lo, hi)` | Scorio's categorical posterior extension of Max@k | [API](./max_reward.py) · [Bayes@N](https://openreview.net/forum?id=PTXi3Ef4sT) |
+
+## Geometric and Spectrum Metrics
+
+| `scorio.eval.[method_name]` | Returns | Aggregation / method | Reference |
+| --- | --- | --- | --- |
+| `threshold_spectrum_at_k` | `score` | Weighted average of finite-bank success-threshold events | [API](./geom.py) |
+| `threshold_spectrum_at_k_ci` | `(mu, sigma, lo, hi)` | Beta-posterior threshold spectrum | [API](./geom.py) · [Bayes@N](https://openreview.net/forum?id=PTXi3Ef4sT) |
+| `geom_ds_at_k` | `score` | Dataset endpoints averaged first, then geometrically blended; the reported Geom@k | [API](./geom.py) |
+| `geom_ds_at_k_ci` | `(mu, sigma, lo, hi)` | Dataset-level Geom@k delta-method summary | [API](./geom.py) |
+| `geom_at_k` | `score` | Per-question endpoint blend averaged across questions | [API](./geom.py) |
+| `geom_at_k_ci` | `(mu, sigma, lo, hi)` | Questionwise Geom@k delta-method summary | [API](./geom.py) |
+| `geo_spectrum_at_k` | `score` | Dataset-level Pass/spectrum geometric blend | [API](./geom.py) |
+| `geo_spectrum_at_k_ci` | `(mu, sigma, lo, hi)` | Posterior GeoSpectrum delta-method summary | [API](./geom.py) |
+| `geo_spectrum_star_at_k` | `score` | Default upper-half mG GeoSpectrum operating point | [API](./geom.py) |
+| `geo_spectrum_star_at_k_ci` | `(mu, sigma, lo, hi)` | Posterior default GeoSpectrum summary | [API](./geom.py) |
 
 ## References
 

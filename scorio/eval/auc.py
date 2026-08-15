@@ -17,26 +17,12 @@ Available API
 import math
 
 import numpy as np
-from scipy.special import comb
 
-from .pass_at_k import (
-    _beta_ratio,
-    _binary_beta_posterior_params,
-    pass_at_k,
-    pass_at_k_ci,
-)
-from .utils import _as_2d_int_matrix, _validate_binary, normal_credible_interval
-
-
-def _validate_k(N: int, k: int) -> None:
-    if not (1 <= k <= N):
-        raise ValueError(f"k must satisfy 1 <= k <= N (N={N}); got k={k}")
-
-
-def _pass_at_k_values_from_counts(nu: np.ndarray, N: int, k: int) -> np.ndarray:
-    """Vectorized Pass@k values from per-row success counts."""
-    denom = comb(N, k)
-    return 1.0 - comb(N - nu, k) / denom
+from ._count_score import CountScore, pass_curve
+from ._inputs import prepare_binary_bank, validate_finite_k
+from ._posterior import posterior_moments
+from .pass_at_k import pass_at_k_ci
+from .utils import normal_credible_interval
 
 
 def _auc_at_k_coefficients(k: int) -> np.ndarray:
@@ -112,63 +98,25 @@ def auc_at_k(R: np.ndarray, k: int) -> float:
         >>> round(auc_at_k(R, 3), 6)
         0.9
     """
-    Rm = _as_2d_int_matrix(R)
-    _validate_binary(Rm)
-    _, N = Rm.shape
-    _validate_k(N, k)
-
-    if k == 1:
-        return pass_at_k(Rm, 1)
-
-    nu = np.sum(Rm, axis=1)
+    bank = prepare_binary_bank(R)
+    k = validate_finite_k(bank.trial_count, k)
     coeff = _auc_at_k_coefficients(k)
-
-    vals = np.zeros(Rm.shape[0], dtype=float)
-    for j, c_j in enumerate(coeff, start=1):
-        vals += c_j * _pass_at_k_values_from_counts(nu, N, j)
-    return float(np.mean(vals))
+    return float(np.dot(coeff, pass_curve(bank, k)))
 
 
 def _auc_at_k_bayes(
     R: np.ndarray, k: int, alpha0: float = 1.0, beta0: float = 1.0
 ) -> tuple[float, float]:
     """Posterior mean/std for :func:`auc_at_k`."""
-    Rm = _as_2d_int_matrix(R)
-    _validate_binary(Rm)
-    M, N = Rm.shape
-    _validate_k(N, k)
-
-    alpha, beta = _binary_beta_posterior_params(Rm, alpha0=alpha0, beta0=beta0)
-    coeff = _auc_at_k_coefficients(k)
-    js = np.arange(1, k + 1, dtype=int)
-
-    means = np.empty(M, dtype=float)
-    vars_ = np.empty(M, dtype=float)
-
-    # Eq. (7) becomes a weighted sum of Pass@j terms, and for Bernoulli
-    # success rate p we use Pass@j(p) = 1 - (1 - p)^j.
-    for i in range(M):
-        a_i = float(alpha[i])
-        b_i = float(beta[i])
-
-        eq = np.array([_beta_ratio(a_i, b_i, 0, int(j)) for j in js], dtype=float)
-        m = 1.0 - float(np.dot(coeff, eq))
-
-        e2 = 1.0
-        e2 -= 2.0 * float(np.dot(coeff, eq))
-        for idx_j, j in enumerate(js):
-            c_j = float(coeff[idx_j])
-            for idx_l, l in enumerate(js):
-                c_l = float(coeff[idx_l])
-                e2 += c_j * c_l * _beta_ratio(a_i, b_i, 0, int(j + l))
-
-        v = max(0.0, e2 - m * m)
-        means[i] = m
-        vars_[i] = v
-
-    mu = float(np.mean(means))
-    sigma = float(math.sqrt(float(np.sum(vars_))) / M)
-    return mu, sigma
+    bank = prepare_binary_bank(R)
+    k = validate_finite_k(bank.trial_count, k)
+    moments = posterior_moments(
+        bank,
+        CountScore.auc_at_k(k),
+        alpha0=alpha0,
+        beta0=beta0,
+    )
+    return moments.mean, float(math.sqrt(moments.variance))
 
 
 def auc_at_k_ci(
@@ -200,6 +148,9 @@ def auc_at_k_ci(
         tuple[float, float, float, float]:
             :math:`(\mu,\; \sigma,\; \text{lo},\; \text{hi})`.
     """
+    if isinstance(k, (bool, np.bool_)) or not isinstance(k, (int, np.integer)):
+        raise ValueError(f"k must be an integer; got {k!r}.")
+    k = int(k)
     if k == 1:
         return pass_at_k_ci(
             R,

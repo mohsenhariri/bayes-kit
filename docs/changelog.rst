@@ -68,6 +68,28 @@ Added
     ``cges_vote()`` selects a final answer and ``cges_stop()`` checks an online
     stopping threshold (Aghazadeh et al., 2026).
 
+Changed
+~~~~~~~
+
+- **Python evaluation internals** now share validated NumPy sufficient
+  statistics and stable finite/posterior count-score kernels. The documented
+  functional API, signatures, and valid-input aggregation semantics are
+  unchanged.
+- Python evaluation inputs now reject fractional, non-finite, and non-integral
+  values before conversion, and bounded credible intervals cannot invert when
+  their mean lies outside the requested bounds. The JavaScript and Julia ports
+  retain the 0.2.2 coercion and clipping behavior pending a synchronized port;
+  their old edge-case compatibility tests no longer describe Python.
+
+Fixed
+~~~~~
+
+- Large finite banks and high latent budgets no longer overflow binomial/Beta
+  coefficient products in Pass, AUC, generalized-pass, Geom, or spectrum
+  metrics and credible intervals.
+- Max@k now preserves rare-event probabilities, posterior uncertainty under
+  reward translations, and finite uncertainty for large finite reward scales.
+
 Version 0.2.2 (2026-04-28)
 --------------------------
 
@@ -84,8 +106,9 @@ Added
     GeoSpectrum metrics with threshold-spectrum weights.
   - ``geo_spectrum_star_at_k()`` and ``geo_spectrum_star_at_k_ci()`` for the
     default upper-half GeoSpectrum operating point.
-  - ``threshold_spectrum_at_k()`` and ``threshold_spectrum_at_k_ci()`` for
-    finite-bank threshold-spectrum summaries.
+  - ``threshold_spectrum_at_k()`` for finite-bank threshold-spectrum summaries.
+  - ``threshold_spectrum_at_k_ci()`` for the corresponding latent posterior
+    target, including resampling budgets larger than the observed bank.
 
 Version 0.1.0 (2025-12-15)
 --------------------------
