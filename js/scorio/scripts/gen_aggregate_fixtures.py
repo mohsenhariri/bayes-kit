@@ -47,6 +47,11 @@ def serializable(value: Any) -> Any:
     return value
 
 
+def counts_to_stream(counts: Any) -> list[str]:
+    """Expand per-answer counts into a sampling stream of distinct labels."""
+    return [f"L{index}" for index, count in enumerate(counts) for _ in range(count)]
+
+
 def build_fixture() -> dict[str, Any]:
     logprobs = [-0.13, -0.44, -0.07, -0.81, -0.22]
     topk = [
@@ -207,6 +212,9 @@ def build_fixture() -> dict[str, Any]:
     online_topk = [[0.0, -2.0]] * 3 + [[-4.0, -6.0]] * 4
     dominant = ["A"] * 8 + ["B"] * 2
     large_counts = (100_000, 99_999)
+    peaked_counts = (60, 20, 10, 5, 5)
+    peaked_large_counts = (800, 100, 50, 25, 25)
+    near_tie_counts = ((32, 31), (256, 255), (1024, 1020), (5000, 4999))
     online = {
         "warmup": warmup,
         "threshold_keep_02": agg.deepconf_stop_threshold(warmup, keep=0.2),
@@ -242,6 +250,25 @@ def build_fixture() -> dict[str, Any]:
         "dirichlet_symmetric": agg.adaptive_consistency_dirichlet_stop(
             ["A"] * 1000 + ["B"] * 1000 + ["C"] * 1000, return_prob=True
         ),
+        # A dominant leader pushes almost all of the integrand's variation into a
+        # narrow layer near one endpoint, which a fixed-depth rule under-resolves.
+        "dirichlet_peaked_counts": peaked_counts,
+        "dirichlet_peaked": agg.adaptive_consistency_dirichlet_stop(
+            counts_to_stream(peaked_counts), return_prob=True
+        ),
+        "dirichlet_peaked_large_counts": peaked_large_counts,
+        "dirichlet_peaked_large": agg.adaptive_consistency_dirichlet_stop(
+            counts_to_stream(peaked_large_counts), return_prob=True
+        ),
+        # Near-tied counts across several magnitudes exercise the binomial tail
+        # that backs the top-two criterion.
+        "adaptive_near_tie_counts": near_tie_counts,
+        "adaptive_near_tie": [
+            agg.adaptive_consistency_stop(
+                counts_to_stream(counts), return_prob=True
+            )
+            for counts in near_tie_counts
+        ],
         "crp_dominant": agg.adaptive_consistency_crp_stop(
             ["A"] * 7 + ["B"],
             horizon=12,
@@ -266,6 +293,14 @@ def build_fixture() -> dict[str, Any]:
     fitted = agg.fit_kde_vote_calibration(
         [0.8, 0.9, 0.1, 0.2], [1, 1, 0, 0], n_bins=2, bandwidth=0.5
     )
+    # Sixteen samples over ten bins is a case where the requested probabilities
+    # `i / n_bins` are inexact, so NumPy's nearest-order-statistic rounding lands
+    # on a different sample than an exactly-halved virtual index would.
+    bin_scores = [round(0.05 * (i + 1), 10) for i in range(16)]
+    bin_labels = [1 if i % 3 == 0 else 0 for i in range(16)]
+    bin_fitted = agg.fit_kde_vote_calibration(
+        bin_scores, bin_labels, n_bins=10, bandwidth=0.5
+    )
     calibration = {
         "correct_logits": fitted.correct_logits,
         "incorrect_logits": fitted.incorrect_logits,
@@ -276,6 +311,13 @@ def build_fixture() -> dict[str, Any]:
         "calibrated_probability": fitted.calibrated_probability([0.2, 0.7, 0.8, 0.95]),
         "log_density_ratio": fitted.log_density_ratio([0.4, 0.7]),
         "vote": agg.kde_weighted_vote(["A", "A", "B"], [0.2, 0.2, 0.8], fitted),
+        "inexact_quantile_scores": bin_scores,
+        "inexact_quantile_labels": bin_labels,
+        "inexact_quantile_edges": bin_fitted.bin_edges,
+        "inexact_quantile_probability": bin_fitted.bin_probability,
+        "inexact_quantile_calibrated": bin_fitted.calibrated_probability(
+            [0.16, 0.26, 0.31, 0.56, 0.61]
+        ),
     }
 
     cges = {

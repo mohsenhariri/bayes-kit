@@ -415,8 +415,15 @@ export function fitKdeVoteCalibration(
   const boundaries: number[] = [];
   const minimum = ordered[0]!;
   const maximum = ordered[ordered.length - 1]!;
+  // Reproduce `np.quantile(scores, np.linspace(0, 1, n_bins + 1), method="nearest")`
+  // operation for operation: NumPy forms each probability as `i * (1 / n_bins)`
+  // and the virtual index as `(n - 1) * q`, then rounds half to even. Folding
+  // those into `(n - 1) * i / n_bins` rounds differently whenever `i / n_bins`
+  // is inexact (e.g. `15 * 0.30000000000000004 = 4.500000000000001` rounds to 5,
+  // while an exact `4.5` rounds to 4).
+  const step = 1 / nBins;
   for (let index = 1; index < nBins; index++) {
-    const position = ((ordered.length - 1) * index) / nBins;
+    const position = (ordered.length - 1) * (index * step);
     const boundary = ordered[roundHalfToEven(position)]!;
     if (
       boundary > minimum &&

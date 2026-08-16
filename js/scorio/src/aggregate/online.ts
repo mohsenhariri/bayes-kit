@@ -6,12 +6,17 @@ import {
   tokenConfidence,
 } from "./confidence.js";
 import { isValidAnswer } from "./internal/base.js";
-import { betainc, quantile } from "./internal/math.js";
+import {
+  betainc,
+  binomialDeviance,
+  quantile,
+  stirlingError,
+} from "./internal/math.js";
 import {
   asFiniteVector,
   type NumericInput,
 } from "./internal/numeric.js";
-import { gammaln } from "../eval/internal/math.js";
+import { gammaln, ndtri } from "../eval/internal/math.js";
 import {
   pythonComparableNumber,
   pythonInt,
@@ -58,36 +63,46 @@ export function adaptiveConsistencyStop<T, ReturnProb extends boolean = false>(
 
 const GAMMA_EPSILON = 1e-14;
 const GAMMA_FPMIN = 1e-300;
-const GAMMA_MAX_ITERATIONS = 500;
-const GAMMA_NORMAL_APPROXIMATION_SHAPE = 10_000;
+const GAMMA_MIN_ITERATIONS = 500;
+const GAMMA_INVERSION_STEPS = 60;
 
-/** Standard-normal CDF expressed through the accurately convergent a=1/2 case. */
-function normalCdf(value: number): number {
-  if (value === 0) return 0.5;
-  const magnitude = regularizedGammaP(0.5, (value * value) / 2);
-  return value > 0 ? (1 + magnitude) / 2 : (1 - magnitude) / 2;
+/**
+ * `log(x^a e^{-x} / Gamma(a))`, the prefactor shared by both gamma expansions.
+ *
+ * Differencing `a * log(x)` against `gammaln(a)` loses about `gammaln(a) * eps`
+ * of accuracy, and `gammaln(a)` reaches ~1e6 for the shapes this integral sees.
+ * Since `x^{a-1} e^{-x} / Gamma(a)` is the Poisson pmf at `a - 1` with mean `x`,
+ * Loader's saddle-point form evaluates it without that subtraction.
+ */
+function logGammaPrefactor(a: number, x: number): number {
+  if (a > 1) {
+    return (
+      Math.log(x) -
+      stirlingError(a - 1) -
+      binomialDeviance(a - 1, x) -
+      0.5 * Math.log(2 * Math.PI * (a - 1))
+    );
+  }
+  return -x + a * Math.log(x) - gammaln(a);
 }
 
 /** Regularized lower incomplete gamma P(a, x), for positive a and x >= 0. */
 function regularizedGammaP(a: number, x: number): number {
   if (x <= 0) return 0;
   if (x === Infinity) return 1;
-  // The Lanczos subtraction in the exact series loses useful digits once both
-  // a and x are very large and close.  Wilson-Hilferty is asymptotically
-  // accurate in precisely that regime and preserves SciPy parity for the
-  // large-count Dirichlet integral.
-  if (a >= GAMMA_NORMAL_APPROXIMATION_SHAPE) {
-    const z =
-      (Math.cbrt(x / a) - (1 - 1 / (9 * a))) /
-      Math.sqrt(1 / (9 * a));
-    return normalCdf(z);
-  }
-  const logFactor = -x + a * Math.log(x) - gammaln(a);
+  const logFactor = logGammaPrefactor(a, x);
+  // Both expansions need O(sqrt(a)) terms when x sits near a, so a fixed cap
+  // silently truncates exactly where the Dirichlet integrand is most sensitive.
+  const limit = Math.max(
+    GAMMA_MIN_ITERATIONS,
+    Math.ceil(40 * Math.sqrt(a)) + 100,
+  );
+
   if (x < a + 1) {
     let ap = a;
     let term = 1 / a;
     let sum = term;
-    for (let iteration = 1; iteration <= GAMMA_MAX_ITERATIONS; iteration++) {
+    for (let iteration = 1; iteration <= limit; iteration++) {
       ap += 1;
       term *= x / ap;
       sum += term;
@@ -100,7 +115,7 @@ function regularizedGammaP(a: number, x: number): number {
   let c = 1 / GAMMA_FPMIN;
   let d = 1 / (Math.abs(b) < GAMMA_FPMIN ? GAMMA_FPMIN : b);
   let h = d;
-  for (let iteration = 1; iteration <= GAMMA_MAX_ITERATIONS; iteration++) {
+  for (let iteration = 1; iteration <= limit; iteration++) {
     const an = -iteration * (iteration - a);
     b += 2;
     d = an * d + b;
@@ -116,71 +131,166 @@ function regularizedGammaP(a: number, x: number): number {
   return Math.max(0, Math.min(1, 1 - q));
 }
 
+/** Gamma(shape, 1) density. */
+function gammaDensity(shape: number, x: number): number {
+  return x <= 0 ? 0 : Math.exp(logGammaPrefactor(shape, x)) / x;
+}
+
 function gammaQuantile(shape: number, probability: number): number {
   if (probability <= 0) return 0;
   if (probability >= 1) return Infinity;
+  // Wilson-Hilferty seeds a safeguarded Newton iteration. Newton converges in a
+  // handful of steps where plain bisection needs ~90, and each step costs a
+  // full O(sqrt(shape))-term CDF evaluation.
+  const scale = 1 / (9 * shape);
+  let x = shape * (1 - scale + ndtri(probability) * Math.sqrt(scale)) ** 3;
+  if (!Number.isFinite(x) || x <= 0) x = shape;
+
   let low = 0;
-  let high = Math.max(1, shape);
-  while (regularizedGammaP(shape, high) < probability) {
-    high *= 2;
-    if (!Number.isFinite(high)) return Infinity;
+  let high = Infinity;
+  for (let iteration = 0; iteration < GAMMA_INVERSION_STEPS; iteration++) {
+    const cdf = regularizedGammaP(shape, x);
+    if (cdf < probability) low = x;
+    else high = x;
+    const density = gammaDensity(shape, x);
+    let next = density > 0 ? x + (probability - cdf) / density : NaN;
+    if (!Number.isFinite(next) || !(next > low && next < high)) {
+      next = Number.isFinite(high) ? 0.5 * (low + high) : Math.max(2 * x, low + 1);
+    }
+    const converged = Math.abs(next - x) <= Math.abs(next) * 1e-15;
+    x = next;
+    if (converged) break;
   }
-  for (let iteration = 0; iteration < 90; iteration++) {
-    const middle = (low + high) / 2;
-    if (regularizedGammaP(shape, middle) < probability) low = middle;
-    else high = middle;
-  }
-  return (low + high) / 2;
+  return x;
 }
 
-function adaptiveSimpson(
+// Adaptive 15-point Gauss-Kronrod quadrature, matching the `epsabs`/`epsrel`/
+// `limit` settings Python passes to `scipy.integrate.quad`. The integrand below
+// concentrates almost all of its variation in a narrow layer near one endpoint,
+// which a fixed-depth Simpson rule resolves only to a few parts in 1e8; an
+// error-driven subdivision spends its panels where that variation actually is.
+const KRONROD_NODES = [
+  0.991455371120812639206854697526329,
+  0.949107912342758524526189684047851,
+  0.864864423359769072789712788640926,
+  0.741531185599394439863864773280788,
+  0.586087235467691130294144838258730,
+  0.405845151377397166906606412076961,
+  0.207784955007898467600689403773245,
+  0.0,
+];
+const KRONROD_WEIGHTS = [
+  0.022935322010529224963732008058970,
+  0.063092092629978553290700663189204,
+  0.104790010322250183839876322541518,
+  0.140653259715525918745189590510238,
+  0.169004726639267902826583426598550,
+  0.190350578064785409913256402421014,
+  0.204432940075298892414161999234649,
+  0.209482141084727828012999174891714,
+];
+const GAUSS_WEIGHTS = [
+  0.129484966168869693270611432679082,
+  0.279705391489276667901467771423780,
+  0.381830050505118944950369775488975,
+  0.417959183673469387755102040816327,
+];
+const QUADRATURE_EPSABS = 1e-10;
+const QUADRATURE_EPSREL = 1e-10;
+const QUADRATURE_LIMIT = 250;
+const MACHINE_EPSILON = 2.220446049250313e-16;
+const UNDERFLOW = 2.2250738585072014e-308;
+
+interface QuadraturePanel {
+  left: number;
+  right: number;
+  value: number;
+  error: number;
+}
+
+/** One QUADPACK `dqk15` panel: the Kronrod value and its Gauss-difference error. */
+function kronrod15(
   fn: (value: number) => number,
   left: number,
   right: number,
-  tolerance: number,
-  whole: number,
-  fLeft: number,
-  fMiddle: number,
-  fRight: number,
-  depth: number,
-): number {
-  const middle = (left + right) / 2;
-  const leftMiddle = (left + middle) / 2;
-  const rightMiddle = (middle + right) / 2;
-  const fLeftMiddle = fn(leftMiddle);
-  const fRightMiddle = fn(rightMiddle);
-  const leftArea =
-    ((middle - left) * (fLeft + 4 * fLeftMiddle + fMiddle)) / 6;
-  const rightArea =
-    ((right - middle) * (fMiddle + 4 * fRightMiddle + fRight)) / 6;
-  const delta = leftArea + rightArea - whole;
-  if (depth <= 0 || Math.abs(delta) <= 15 * tolerance) {
-    return leftArea + rightArea + delta / 15;
+): { value: number; error: number } {
+  const center = 0.5 * (left + right);
+  const halfLength = 0.5 * (right - left);
+  const centerValue = fn(center);
+
+  const lower = new Array<number>(7);
+  const upper = new Array<number>(7);
+  let gauss = centerValue * GAUSS_WEIGHTS[3]!;
+  let kronrod = centerValue * KRONROD_WEIGHTS[7]!;
+  let absoluteIntegral = Math.abs(kronrod);
+
+  for (let j = 0; j < 7; j++) {
+    const offset = halfLength * KRONROD_NODES[j]!;
+    const below = fn(center - offset);
+    const above = fn(center + offset);
+    lower[j] = below;
+    upper[j] = above;
+    const total = below + above;
+    // Odd Kronrod nodes (1-based even) coincide with the 7-point Gauss nodes.
+    if (j % 2 === 1) gauss += GAUSS_WEIGHTS[(j - 1) / 2]! * total;
+    kronrod += KRONROD_WEIGHTS[j]! * total;
+    absoluteIntegral += KRONROD_WEIGHTS[j]! * (Math.abs(below) + Math.abs(above));
   }
-  return (
-    adaptiveSimpson(
-      fn,
-      left,
-      middle,
-      tolerance / 2,
-      leftArea,
-      fLeft,
-      fLeftMiddle,
-      fMiddle,
-      depth - 1,
-    ) +
-    adaptiveSimpson(
-      fn,
-      middle,
-      right,
-      tolerance / 2,
-      rightArea,
-      fMiddle,
-      fRightMiddle,
-      fRight,
-      depth - 1,
-    )
-  );
+
+  const halfKronrod = kronrod * 0.5;
+  let oscillation = KRONROD_WEIGHTS[7]! * Math.abs(centerValue - halfKronrod);
+  for (let j = 0; j < 7; j++) {
+    oscillation +=
+      KRONROD_WEIGHTS[j]! *
+      (Math.abs(lower[j]! - halfKronrod) + Math.abs(upper[j]! - halfKronrod));
+  }
+
+  const magnitude = Math.abs(halfLength);
+  const value = kronrod * halfLength;
+  const scaledAbsolute = absoluteIntegral * magnitude;
+  const scaledOscillation = oscillation * magnitude;
+  let error = Math.abs((kronrod - gauss) * halfLength);
+  if (scaledOscillation !== 0 && error !== 0) {
+    error =
+      scaledOscillation *
+      Math.min(1, ((200 * error) / scaledOscillation) ** 1.5);
+  }
+  if (scaledAbsolute > UNDERFLOW / (50 * MACHINE_EPSILON)) {
+    error = Math.max(MACHINE_EPSILON * 50 * scaledAbsolute, error);
+  }
+  return { value, error };
+}
+
+/** Error-driven bisection over Gauss-Kronrod panels (QUADPACK `dqag` core). */
+function adaptiveQuadrature(
+  fn: (value: number) => number,
+  left: number,
+  right: number,
+): { value: number; error: number } {
+  const first = kronrod15(fn, left, right);
+  const panels: QuadraturePanel[] = [{ left, right, ...first }];
+  let value = first.value;
+  let error = first.error;
+
+  for (let iteration = 1; iteration < QUADRATURE_LIMIT; iteration++) {
+    if (error <= Math.max(QUADRATURE_EPSABS, QUADRATURE_EPSREL * Math.abs(value))) {
+      break;
+    }
+    let worst = 0;
+    for (let index = 1; index < panels.length; index++) {
+      if (panels[index]!.error > panels[worst]!.error) worst = index;
+    }
+    const panel = panels[worst]!;
+    const middle = 0.5 * (panel.left + panel.right);
+    if (!(middle > panel.left && middle < panel.right)) break;
+    const below = kronrod15(fn, panel.left, middle);
+    const above = kronrod15(fn, middle, panel.right);
+    value += below.value + above.value - panel.value;
+    error += below.error + above.error - panel.error;
+    panels[worst] = { left: panel.left, right: middle, ...below };
+    panels.push({ left: middle, right: panel.right, ...above });
+  }
+  return { value, error };
 }
 
 function dirichletLeaderProbability(counts: readonly number[]): number {
@@ -196,47 +306,28 @@ function dirichletLeaderProbability(counts: readonly number[]): number {
   if (otherShapes.every((shape) => shape === leaderShape)) {
     return 1 / counts.length;
   }
-  const cache = new Map<number, number>();
   const integrand = (probability: number): number => {
     if (probability <= 0) return 0;
     if (probability >= 1) return 1;
-    const cached = cache.get(probability);
-    if (cached !== undefined) return cached;
     const value = gammaQuantile(leaderShape, probability);
     let logProduct = 0;
     for (const shape of otherShapes) {
       const cdf = regularizedGammaP(shape, value);
-      if (cdf <= 0) {
-        cache.set(probability, 0);
-        return 0;
-      }
+      if (cdf <= 0) return 0;
       logProduct += Math.log(cdf);
     }
-    const result = Math.exp(logProduct);
-    cache.set(probability, result);
-    return result;
+    return Math.exp(logProduct);
   };
-  const fLeft = 0;
-  const fMiddle = integrand(0.5);
-  const fRight = 1;
-  const whole = (fLeft + 4 * fMiddle + fRight) / 6;
-  return Math.max(
-    0,
-    Math.min(
-      1,
-      adaptiveSimpson(
-        integrand,
-        0,
-        1,
-        1e-10,
-        whole,
-        fLeft,
-        fMiddle,
-        fRight,
-        20,
-      ),
-    ),
-  );
+
+  const { value, error } = adaptiveQuadrature(integrand, 0, 1);
+  const tolerance = Math.max(1e-8, 1e-7 * Math.abs(value));
+  if (!Number.isFinite(value) || !Number.isFinite(error) || error > tolerance) {
+    throw new Error(
+      "Dirichlet leader-probability integration did not converge " +
+        `(estimated error ${error}).`,
+    );
+  }
+  return Math.max(0, Math.min(1, value));
 }
 
 export interface AdaptiveConsistencyDirichletStopOptions<

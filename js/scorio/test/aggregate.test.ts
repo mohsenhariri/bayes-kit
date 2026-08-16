@@ -564,6 +564,23 @@ describe("KDE-calibrated voting matches Python", () => {
     equivalent(calibration.binProbability, fx.calibration.bin_probability);
   });
 
+  it("rounds nearest-quantile bins on NumPy's inexact probabilities", () => {
+    // `i / n_bins` is inexact for several `i` here, so folding NumPy's
+    // `(n - 1) * q` into `(n - 1) * i / n_bins` would round two boundaries onto
+    // the neighbouring order statistic and shift the fitted bins.
+    const fitted = aggregate.fitKdeVoteCalibration(
+      fx.calibration.inexact_quantile_scores,
+      fx.calibration.inexact_quantile_labels,
+      { nBins: 10, bandwidth: 0.5 },
+    );
+    equivalent(fitted.binEdges, fx.calibration.inexact_quantile_edges);
+    equivalent(fitted.binProbability, fx.calibration.inexact_quantile_probability);
+    equivalent(
+      fitted.calibratedProbability([0.16, 0.26, 0.31, 0.56, 0.61]),
+      fx.calibration.inexact_quantile_calibrated,
+    );
+  });
+
   it("evaluates density/reliability weights and exact boundary limits", () => {
     const calibration = aggregate.fitKdeVoteCalibration(
       [0.7, 0.8, 0.2, 0.3],
@@ -814,7 +831,7 @@ describe("full Adaptive-Consistency variants match Python", () => {
       { returnProb: true },
     );
     expect(large[0]).toBe(fx.online.dirichlet_large[0]);
-    expect(large[1]).toBeCloseTo(fx.online.dirichlet_large[1], 8);
+    expect(large[1]).toBeCloseTo(fx.online.dirichlet_large[1], 11);
     const veryLarge = aggregate.adaptiveConsistencyDirichletStop(
       [
         ...new Array<string>(100_000).fill("A"),
@@ -824,7 +841,7 @@ describe("full Adaptive-Consistency variants match Python", () => {
       { returnProb: true },
     );
     expect(veryLarge[0]).toBe(fx.online.dirichlet_very_large[0]);
-    expect(veryLarge[1]).toBeCloseTo(fx.online.dirichlet_very_large[1], 7);
+    expect(veryLarge[1]).toBeCloseTo(fx.online.dirichlet_very_large[1], 11);
     expect(
       aggregate.adaptiveConsistencyDirichletStop(
         [
@@ -835,6 +852,39 @@ describe("full Adaptive-Consistency variants match Python", () => {
         { returnProb: true },
       )[1],
     ).toBe(fx.online.dirichlet_symmetric[1]);
+  });
+
+  it("resolves the endpoint layer a dominant leader creates", () => {
+    // A leader far ahead of every rival concentrates the Dirichlet integrand's
+    // variation near one endpoint; the quadrature has to spend its panels there
+    // rather than spreading them evenly over [0, 1].
+    const expand = (counts: number[]): string[] =>
+      counts.flatMap((count, index) => new Array<string>(count).fill(`L${index}`));
+    const peaked = aggregate.adaptiveConsistencyDirichletStop(
+      expand(fx.online.dirichlet_peaked_counts),
+      { returnProb: true },
+    );
+    expect(peaked[0]).toBe(fx.online.dirichlet_peaked[0]);
+    expect(peaked[1]).toBeCloseTo(fx.online.dirichlet_peaked[1], 11);
+    const peakedLarge = aggregate.adaptiveConsistencyDirichletStop(
+      expand(fx.online.dirichlet_peaked_large_counts),
+      { returnProb: true },
+    );
+    expect(peakedLarge[0]).toBe(fx.online.dirichlet_peaked_large[0]);
+    expect(peakedLarge[1]).toBeCloseTo(fx.online.dirichlet_peaked_large[1], 11);
+  });
+
+  it("keeps the near-tie binomial tail accurate across magnitudes", () => {
+    const counts = fx.online.adaptive_near_tie_counts as [number, number][];
+    counts.forEach(([first, second], index) => {
+      const stream = [
+        ...new Array<string>(first).fill("L0"),
+        ...new Array<string>(second).fill("L1"),
+      ];
+      const result = aggregate.adaptiveConsistencyStop(stream, { returnProb: true });
+      expect(result[0]).toBe(fx.online.adaptive_near_tie[index][0]);
+      expect(result[1]).toBeCloseTo(fx.online.adaptive_near_tie[index][1], 13);
+    });
   });
 
   it("matches the top-two method for one/two categories and consumes generators once", () => {
