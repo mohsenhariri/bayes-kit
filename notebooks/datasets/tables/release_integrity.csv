@@ -1,0 +1,45 @@
+dataset,check,status,violations,detail
+scorio-gpqa,manifest and disk contain the same Parquet paths,PASS,0,"disk=14,400; manifest=14,400"
+scorio-gpqa,every Parquet file is readable,PASS,0,"read 14,400 of 14,400 files"
+scorio-gpqa,manifest byte counts match file sizes,PASS,0,"729,481,888,497 bytes"
+scorio-gpqa,manifest row counts match Parquet metadata,PASS,0,"1,152,000 physical rows"
+scorio-gpqa,every candidate pool has seeds 0 through 79 in order,PASS,0,"14,400 physical candidate pools"
+scorio-gpqa,every file candidate-pool container has 80 rows,PASS,0,"files=14,400; row_groups=178,648"
+scorio-gpqa,release builder recorded no failures,PASS,0,failures=0
+scorio-gpqa,manifest logical-attempt total matches each complete tier,PASS,0,"manifest=1,152,000; full=1,152,000"
+scorio-gpqa,manifest aggregate byte fields match Parquet files,PASS,0,"total_bytes=729,481,888,497"
+scorio-gpqa,dataset card has the expected number of configurations,PASS,0,configs=4
+scorio-gpqa,"task, model, and question totals match the published design",PASS,0,"tasks=1; models=4; questions=3,600"
+scorio-lite,manifest and disk contain the same Parquet paths,PASS,0,disk=328; manifest=328
+scorio-lite,every Parquet file is readable,PASS,0,read 328 of 328 files
+scorio-lite,manifest byte counts match file sizes,PASS,0,"37,813,185,899 bytes"
+scorio-lite,manifest row counts match Parquet metadata,PASS,0,"2,423,040 physical rows"
+scorio-lite,every candidate pool has seeds 0 through 79 in order,PASS,0,"30,288 physical candidate pools"
+scorio-lite,every row group candidate-pool container has 80 rows,PASS,0,"files=328; row_groups=30,288"
+scorio-lite,release builder recorded no failures,PASS,0,failures=0
+scorio-lite,manifest logical-attempt total matches each complete tier,PASS,0,"manifest=1,211,520; full=1,211,520; meta=1,211,520"
+scorio-lite,manifest aggregate byte fields match Parquet files,PASS,0,"full=35,776,562,581; meta=2,036,623,318"
+scorio-lite,dataset card has the expected number of configurations,PASS,0,configs=10
+scorio-lite,"task, model, and question totals match the published design",PASS,0,"tasks=6; models=4; questions=3,786"
+scorio-math,manifest and disk contain the same Parquet paths,PASS,0,disk=744; manifest=744
+scorio-math,every Parquet file is readable,PASS,0,read 744 of 744 files
+scorio-math,manifest byte counts match file sizes,PASS,0,"179,069,678,952 bytes"
+scorio-math,manifest row counts match Parquet metadata,PASS,0,"59,520 physical rows"
+scorio-math,every candidate pool has seeds 0 through 79 in order,PASS,0,744 physical candidate pools
+scorio-math,every file candidate-pool container has 80 rows,PASS,0,"files=744; row_groups=31,303"
+scorio-math,release builder recorded no failures,PASS,0,failures=0
+scorio-math,manifest logical-attempt total matches each complete tier,PASS,0,"manifest=59,520; full=59,520"
+scorio-math,manifest aggregate byte fields match Parquet files,PASS,0,"total_bytes=179,069,678,952"
+scorio-math,dataset card has the expected number of configurations,PASS,0,configs=4
+scorio-math,"task, model, and question totals match the published design",PASS,0,tasks=5; models=4; questions=186
+scorio-trace,manifest and disk contain the same Parquet paths,PASS,0,disk=160; manifest=160
+scorio-trace,every Parquet file is readable,PASS,0,read 160 of 160 files
+scorio-trace,manifest byte counts match file sizes,PASS,0,"14,044,816,094 bytes"
+scorio-trace,manifest row counts match Parquet metadata,PASS,0,"384,000 physical rows"
+scorio-trace,every candidate pool has seeds 1234 through 1313 in order,PASS,0,"4,800 physical candidate pools"
+scorio-trace,every row group candidate-pool container has 80 rows,PASS,0,"files=160; row_groups=4,800"
+scorio-trace,release builder recorded no failures,PASS,0,failures=0
+scorio-trace,manifest logical-attempt total matches each complete tier,PASS,0,"manifest=192,000; full=192,000; meta=192,000"
+scorio-trace,manifest aggregate byte fields match Parquet files,PASS,0,"full=12,588,264,899; meta=1,456,551,195"
+scorio-trace,dataset card has the expected number of configurations,PASS,0,configs=21
+scorio-trace,"task, model, and question totals match the published design",PASS,0,tasks=4; models=20; questions=120

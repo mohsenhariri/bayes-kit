@@ -1,0 +1,5 @@
+dataset,configurations,tasks,models,questions,logical_attempts,physical_rows,parquet_files,row_groups,parquet_bytes,gib,schema_variants,manifest
+scorio-gpqa,4,1,4,3600,1152000,1152000,14400,178648,729481888497,679.382951,1,_MANIFEST.json
+scorio-lite,10,6,4,3786,1211520,2423040,328,30288,37813185899,35.216274,4,manifest.json
+scorio-math,4,5,4,186,59520,59520,744,31303,179069678952,166.771634,1,_MANIFEST.json
+scorio-trace,21,4,20,120,192000,384000,160,4800,14044816094,13.080254,3,manifest.json

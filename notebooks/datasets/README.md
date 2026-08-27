@@ -108,8 +108,3 @@ import huggingface_hub
 print("datasets:", datasets.__version__)
 print("huggingface_hub:", huggingface_hub.__version__)
 ```
-
-An older client may interpret `buckets/<owner>/<name>` as a local directory. The resulting
-`FileNotFoundError` contains a path such as `/current/working/directory/buckets/...`, even
-though the remote Bucket exists. Upgrade `datasets` and `huggingface_hub` in the active
-kernel environment, restart the kernel, and run the notebook from the first cell.

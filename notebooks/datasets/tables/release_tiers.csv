@@ -1,0 +1,9 @@
+dataset,tier,family,tasks,models,parquet_files,row_groups,physical_rows,candidate_pools,parquet_bytes,gib
+scorio-gpqa,full,gpqa,1,4,14400,178648,1152000,14400,729481888497,679.382951
+scorio-lite,full,gpqa,1,4,144,14400,1152000,14400,29038407064,27.044124
+scorio-lite,full,math,5,4,20,744,59520,744,6738155517,6.275396
+scorio-lite,meta,gpqa,1,4,144,14400,1152000,14400,1558927298,1.451864
+scorio-lite,meta,math,5,4,20,744,59520,744,477696020,0.444889
+scorio-math,full,math,5,4,744,31303,59520,744,179069678952,166.771634
+scorio-trace,full,math,4,20,80,2400,192000,2400,12588264899,11.723735
+scorio-trace,meta,math,4,20,80,2400,192000,2400,1456551195,1.356519
