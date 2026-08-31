@@ -252,7 +252,7 @@ If you use Scorio in your research, please cite the relevant papers:
 
 We welcome contributions from the community! To report a bug, propose a feature, or add an evaluation, ranking, or aggregation method, please see our [Contributing Guide](CONTRIBUTING.md).
 
-We'll add guidelines for coding agents (AGENTS.md/CLAUDE.md) soon.
+Guidelines for coding agents are in [AGENTS.md](AGENTS.md) / [CLAUDE.md](CLAUDE.md).
 
 <table>
   <tr>
