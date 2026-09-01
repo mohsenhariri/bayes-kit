@@ -292,6 +292,12 @@ Guidelines for coding agents are in [AGENTS.md](AGENTS.md) / [CLAUDE.md](CLAUDE.
         <sub><b>@Amirsamandar</b></sub>
       </a>
     </td>
+    <td align="center">
+      <a href="https://github.com/SreehariSankar">
+        <img src="https://avatars.githubusercontent.com/u/54915320?s=96&amp;v=4" width="80" height="80" alt="@SreehariSankar"><br>
+        <sub><b>@SreehariSankar</b></sub>
+      </a>
+    </td>
   </tr>
 </table>
 

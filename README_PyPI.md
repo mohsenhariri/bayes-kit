@@ -250,9 +250,9 @@ If you use Scorio in your research, please cite the relevant papers:
 
 ## Contributing
 
-We welcome contributions from the community! To report a bug, propose a feature, or add an evaluation, ranking, or aggregation method, please see our [Contributing Guide](https://github.com/mohsenhariri/scorio/blob/main/CONTRIBUTING.md).
+We welcome contributions from the community! To report a bug, propose a feature, or add an evaluation, ranking, or aggregation method, please see our [Contributing Guide](CONTRIBUTING.md).
 
-We'll add guidelines for coding agents (AGENTS.md/CLAUDE.md) soon.
+Guidelines for coding agents are in [AGENTS.md](AGENTS.md) / [CLAUDE.md](CLAUDE.md).
 
 <table>
   <tr>
@@ -290,6 +290,12 @@ We'll add guidelines for coding agents (AGENTS.md/CLAUDE.md) soon.
       <a href="https://github.com/Amirsamandar">
         <img src="https://avatars.githubusercontent.com/u/90907234?s=96&amp;v=4" width="80" height="80" alt="@Amirsamandar"><br>
         <sub><b>@Amirsamandar</b></sub>
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://github.com/SreehariSankar">
+        <img src="https://avatars.githubusercontent.com/u/54915320?s=96&amp;v=4" width="80" height="80" alt="@SreehariSankar"><br>
+        <sub><b>@SreehariSankar</b></sub>
       </a>
     </td>
   </tr>
