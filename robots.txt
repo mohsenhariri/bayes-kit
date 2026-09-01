@@ -1,0 +1,9 @@
+# Sitemap for Scorio Documentation
+User-agent: *
+Allow: /
+
+Sitemap: https://mohsenhariri.github.io/scorio/sitemap.xml
+
+# Additional documentation locations
+# Python docs: https://scorio.readthedocs.io/
+# Julia docs: https://mohsenhariri.github.io/scorio/julia/
